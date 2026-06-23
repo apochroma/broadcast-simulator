@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Broadcast Signalfluss Simulation</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Signalfluss-Prototyp</p>
+          <h1>Broadcast Patchfläche</h1>
+        </div>
+        <div class="status-pill" id="programStatus">Keine Program-Quelle</div>
+      </header>
+
+      <div class="toolbar">
+        <section class="library" aria-label="Gear Bibliothek">
+          <button class="library-button" type="button" id="openGearLibrary">ADD Gear</button>
+          <button class="library-button" type="button" id="exportSetup">Export JSON</button>
+          <button class="library-button" type="button" id="importSetup">Import JSON</button>
+          <button class="library-button" type="button" id="shareSetup">Read-only Link</button>
+          <input id="importSetupFile" type="file" accept="application/json,.json" hidden>
+        </section>
+
+        <section class="zoom-controls" aria-label="Zoom">
+          <button class="zoom-button" type="button" data-zoom="out">-</button>
+          <output class="zoom-readout" id="zoomReadout">100%</output>
+          <button class="zoom-button" type="button" data-zoom="in">+</button>
+          <button class="zoom-button wide" type="button" data-zoom="reset">Reset</button>
+        </section>
+      </div>
+
+      <section class="workspace-viewport" id="workspaceViewport" aria-label="Broadcast-Arbeitsfläche">
+        <div class="workspace-scale-shell" id="workspaceScaleShell">
+          <div class="workspace" id="workspace">
+            <svg class="cable-layer" id="cableLayer" aria-hidden="true"></svg>
+            <div class="empty-state" id="emptyState">
+              <strong>Leere Bildfläche</strong>
+              <span>Gear oben hinzufügen, Geräte verschieben und Buchsen miteinander verbinden.</span>
+            </div>
+            <div class="device-layer" id="deviceLayer"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <dialog class="gear-dialog" id="gearDialog">
+      <form class="gear-dialog-card" method="dialog">
+        <header class="dialog-header">
+          <div>
+            <p class="eyebrow">Gear Bibliothek</p>
+            <h2>Device hinzufügen</h2>
+          </div>
+          <button class="icon-button" value="cancel" aria-label="Dialog schließen">x</button>
+        </header>
+
+        <section class="gear-list" id="gearList" aria-label="Verfügbare Devices"></section>
+        <label class="edit-field">
+          Suche
+          <input id="gearSearch" type="search" placeholder="Canon, ATEM Mini, HDMI, Monitor ...">
+        </label>
+
+        <section class="custom-gear">
+          <div>
+            <p class="node-kicker">Custom Gear</p>
+            <h3>Eigenes Device definieren</h3>
+          </div>
+          <div class="custom-grid">
+            <label>
+              Name
+              <input id="customGearName" type="text" placeholder="z.B. Audio Embedder">
+            </label>
+            <label>
+              Kategorie
+              <select id="customGearSignal">
+                <option value="SDI">SDI</option>
+                <option value="HDMI">HDMI</option>
+                <option value="USB-C">USB-C</option>
+                <option value="RJ45">RJ45</option>
+                <option value="Mic 3.5mm">Mic 3.5mm</option>
+                <option value="Headphone 3.5mm">Headphone 3.5mm</option>
+                <option value="XLR">XLR</option>
+                <option value="Network">Network</option>
+              </select>
+            </label>
+            <label>
+              Inputs
+              <input id="customGearInputs" type="number" min="0" max="12" value="1">
+            </label>
+            <label>
+              Outputs
+              <input id="customGearOutputs" type="number" min="0" max="12" value="1">
+            </label>
+          </div>
+          <button class="library-button" type="button" id="addCustomGear">Custom Gear hinzufügen</button>
+        </section>
+      </form>
+    </dialog>
+
+    <dialog class="gear-dialog" id="editGearDialog">
+      <form class="gear-dialog-card" method="dialog">
+        <header class="dialog-header">
+          <div>
+            <p class="eyebrow">Gear bearbeiten</p>
+            <h2 id="editGearHeading">Device</h2>
+          </div>
+          <button class="icon-button" value="cancel" aria-label="Dialog schließen">x</button>
+        </header>
+
+        <label class="edit-field">
+          Name
+          <input id="editGearName" type="text">
+        </label>
+
+        <section class="custom-gear">
+          <div>
+            <p class="node-kicker">Buchsen</p>
+            <h3>Inputs und Outputs</h3>
+          </div>
+          <div class="port-list" id="editPortList"></div>
+          <div class="custom-grid">
+            <label>
+              Richtung
+              <select id="editPortDirection">
+                <option value="input">Input</option>
+                <option value="output">Output</option>
+              </select>
+            </label>
+            <label>
+              Kategorie
+              <select id="editPortSignal">
+                <option value="SDI">SDI</option>
+                <option value="HDMI">HDMI</option>
+                <option value="USB-C">USB-C</option>
+                <option value="RJ45">RJ45</option>
+                <option value="Mic 3.5mm">Mic 3.5mm</option>
+                <option value="Headphone 3.5mm">Headphone 3.5mm</option>
+                <option value="XLR">XLR</option>
+                <option value="Network">Network</option>
+              </select>
+            </label>
+            <label>
+              Label
+              <input id="editPortLabel" type="text" placeholder="z.B. HDMI 1">
+            </label>
+            <button class="library-button align-end" type="button" id="addEditPort">Buchse hinzufügen</button>
+          </div>
+        </section>
+
+        <div class="dialog-actions">
+          <button class="library-button" type="button" id="saveEditGear">Speichern</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="app.js?v=copy-paste-1"></script>
+  </body>
+</html>
