@@ -65,6 +65,13 @@ const legacyGearAliases = {
   atemExtreme: "atemSdiExtremeIso"
 };
 
+const switcherMediaSources = [
+  { id: "mp1", label: "MP1", shortName: "MP1", name: "Media Player 1", pattern: "#12171d" },
+  { id: "mp2", label: "MP2", shortName: "MP2", name: "Media Player 2", pattern: "#12171d" },
+  { id: "ssrc", label: "S/SRC", shortName: "S/SRC", name: "Super Source", pattern: "#16202a" },
+  { id: "black", label: "BLACK", shortName: "BLACK", name: "Black", pattern: "#000" }
+];
+
 function makeCanonCameraTemplate(title) {
   return {
     type: "camera",
@@ -90,7 +97,7 @@ function makeAtemMiniTemplate(title, inputCount, hdmiOutputs, usbOutputs, hasHea
     hdmiOutputs,
     usbOutputs,
     hasHeadphones,
-    width: inputCount > 4 ? 1822 : 700
+    width: inputCount > 4 ? 1894 : 700
   });
 
   if (inputCount > 4) {
@@ -109,7 +116,7 @@ function makeAtemSdiTemplate(title, inputCount, sdiOutputs, usbOutputs, hasHeadp
     sdiOutputs,
     usbOutputs,
     hasHeadphones,
-    width: inputCount > 4 ? 1822 : 700
+    width: inputCount > 4 ? 1894 : 700
   });
 }
 
@@ -244,6 +251,7 @@ function addGear(type, customTemplate) {
     media: template.type === "computer" ? createPlaceholderMedia("Computer") : null,
     previewInput: template.type === "switcher" ? 1 : null,
     programInput: null,
+    busMode: template.type === "switcher" ? "pgmPrv" : null,
     audio: template.type === "switcher" ? createSwitcherAudioState(template.inputCount) : null,
     pattern: cameraPatterns[(countOfType - 1) % cameraPatterns.length]
   };
@@ -340,6 +348,7 @@ function renderNode(node) {
           <h2>${node.title}</h2>
         </div>
         <div class="node-actions ${state.readOnly ? "is-hidden" : ""}">
+          ${node.type === "switcher" ? renderSwitcherModeButton(node) : ""}
           <button class="small-button" type="button" data-action="edit-node" data-node-id="${node.id}">Bearbeiten</button>
           <button class="small-button danger" type="button" data-action="remove-node" data-node-id="${node.id}">Entfernen</button>
         </div>
@@ -348,6 +357,20 @@ function renderNode(node) {
         ${renderNodeBody(node)}
       </div>
     </article>
+  `;
+}
+
+function renderSwitcherModeButton(switcher) {
+  const isCutBus = getSwitcherBusMode(switcher) === "cutBus";
+  const label = isCutBus ? "CUT-Bus" : "PGM/PRV";
+
+  return `
+    <button class="small-button switcher-mode-button ${isCutBus ? "is-cut-bus" : ""}"
+      type="button"
+      data-action="toggle-switcher-bus-mode"
+      data-node-id="${switcher.id}">
+      ${label}
+    </button>
   `;
 }
 
@@ -460,7 +483,7 @@ function renderSwitcherPanel(switcher) {
         <section class="atem-extra-bank" aria-label="Media Player und Black">
           <div class="atem-extra-spacer"></div>
           <div class="atem-extra-sources">
-            ${["MP1", "MP2", "S/SRC", "BLACK"].map((label) => renderPanelButton(label, "source-extra")).join("")}
+            ${switcherMediaSources.map((source) => renderMediaSourceButton(switcher, source)).join("")}
           </div>
         </section>
 
@@ -651,7 +674,10 @@ function renderStatusControl(label, buttons) {
   return `
     <div class="top-device-control status-control">
       <div class="top-device-buttons">
-        ${buttons.map((buttonLabel) => renderPanelButton(buttonLabel)).join("")}
+        ${buttons.map((buttonLabel) => {
+          const isLit = buttonLabel === "REC" || buttonLabel === "ON AIR";
+          return renderPanelButton(buttonLabel, isLit ? "is-lit" : "");
+        }).join("")}
       </div>
       <strong>${label}</strong>
     </div>
@@ -713,7 +739,7 @@ function setMicAudioMode(switcherId, micId, mode) {
 
 function renderSourceButton(switcher, input) {
   const isProgram = switcher.programInput === input;
-  const isPreview = switcher.previewInput === input && !isProgram;
+  const isPreview = getSwitcherBusMode(switcher) !== "cutBus" && switcher.previewInput === input && !isProgram;
   const buttonClass = [
     "source-button",
     isProgram ? "is-program" : "",
@@ -723,6 +749,29 @@ function renderSourceButton(switcher, input) {
   return `
     <button class="${buttonClass}" type="button" data-action="select-preview" data-node-id="${switcher.id}" data-input="${input}" aria-pressed="${isPreview || isProgram}">
       ${input}
+    </button>
+  `;
+}
+
+function renderMediaSourceButton(switcher, source) {
+  const isProgram = switcher.programInput === source.id;
+  const isPreview = getSwitcherBusMode(switcher) !== "cutBus" && switcher.previewInput === source.id && !isProgram;
+  const buttonClass = [
+    "panel-button",
+    "source-extra",
+    "media-source-button",
+    isProgram ? "is-program" : "",
+    isPreview ? "is-preview" : ""
+  ].filter(Boolean).join(" ");
+
+  return `
+    <button class="${buttonClass}"
+      type="button"
+      data-action="select-preview"
+      data-node-id="${switcher.id}"
+      data-input="${source.id}"
+      aria-pressed="${isPreview || isProgram}">
+      ${source.label}
     </button>
   `;
 }
@@ -925,14 +974,16 @@ function getProgramStatus() {
   }
 
   const source = getSwitcherProgramSource(switcher);
-  return `PGM: ${switcher.title} Input ${switcher.programInput}${source ? ` / ${source.shortName}` : " / No Signal"}`;
+  return `PGM: ${switcher.title} ${getSwitcherBusSourceLabel(switcher.programInput)}${source ? ` / ${source.shortName}` : " / No Signal"}`;
 }
 
 function getSwitcherReadout(switcher) {
   const program = getSwitcherProgramSource(switcher);
   const preview = getSwitcherPreviewSource(switcher);
-  const programLabel = switcher.programInput ? `PGM ${switcher.programInput}${program ? ` ${program.shortName}` : " No Signal"}` : "PGM -";
-  const previewLabel = switcher.previewInput ? `PVW ${switcher.previewInput}${preview ? ` ${preview.shortName}` : " No Signal"}` : "PVW -";
+  const programLabel = switcher.programInput ? `PGM ${getSwitcherBusSourceLabel(switcher.programInput)}${program ? ` ${program.shortName}` : " No Signal"}` : "PGM -";
+  const previewLabel = getSwitcherBusMode(switcher) === "cutBus"
+    ? "CUT-Bus"
+    : switcher.previewInput ? `PVW ${getSwitcherBusSourceLabel(switcher.previewInput)}${preview ? ` ${preview.shortName}` : " No Signal"}` : "PVW -";
 
   return `${programLabel} / ${previewLabel}`;
 }
@@ -988,7 +1039,37 @@ function getSwitcherPreviewSource(switcher) {
 }
 
 function getSwitcherInputSource(switcher, input) {
+  const mediaSource = getSwitcherMediaSource(input);
+
+  if (mediaSource) {
+    return mediaSource;
+  }
+
   return resolveNodeInputSource(switcher, `input-${input}`);
+}
+
+function getSwitcherMediaSource(source) {
+  return switcherMediaSources.find((item) => item.id === source) ?? null;
+}
+
+function normalizeSwitcherBusSource(source) {
+  const numericSource = Number(source);
+
+  if (Number.isInteger(numericSource) && String(source).trim() !== "") {
+    return numericSource;
+  }
+
+  return source;
+}
+
+function getSwitcherBusMode(switcher) {
+  return switcher.busMode === "cutBus" ? "cutBus" : "pgmPrv";
+}
+
+function getSwitcherBusSourceLabel(source) {
+  const mediaSource = getSwitcherMediaSource(source);
+
+  return mediaSource ? mediaSource.label : source;
 }
 
 function resolveNodeInputSource(node, portId) {
@@ -1513,7 +1594,8 @@ function createNodeFromClipboardSnapshot(snapshot) {
 
   if (node.type === "switcher") {
     node.programInput = null;
-    node.previewInput = clamp(node.previewInput ?? 1, 1, Math.max(node.inputCount ?? 1, 1));
+    node.previewInput = normalizeSwitcherBusSource(node.previewInput ?? 1);
+    node.busMode = getSwitcherBusMode(node);
     ensureSwitcherAudioState(node);
   }
 
@@ -1558,9 +1640,28 @@ function selectPreview(switcherId, input) {
 
   if (switcher?.type === "switcher") {
     state.activeSwitcherId = switcher.id;
-    switcher.previewInput = input;
+    const source = normalizeSwitcherBusSource(input);
+
+    if (getSwitcherBusMode(switcher) === "cutBus") {
+      switcher.programInput = source;
+    } else {
+      switcher.previewInput = source;
+    }
+
     render();
   }
+}
+
+function toggleSwitcherBusMode(switcherId) {
+  const switcher = getNode(switcherId);
+
+  if (switcher?.type !== "switcher") {
+    return;
+  }
+
+  switcher.busMode = getSwitcherBusMode(switcher) === "cutBus" ? "pgmPrv" : "cutBus";
+  state.activeSwitcherId = switcher.id;
+  render();
 }
 
 function cut(switcherId) {
@@ -1568,7 +1669,9 @@ function cut(switcherId) {
 
   if (switcher?.type === "switcher" && switcher.previewInput) {
     state.activeSwitcherId = switcher.id;
+    const previousProgram = switcher.programInput;
     switcher.programInput = switcher.previewInput;
+    switcher.previewInput = previousProgram ?? switcher.previewInput;
     render();
   }
 }
@@ -1719,9 +1822,10 @@ function saveEditGear() {
   node.inputCount = node.type === "switcher"
     ? node.inputs.filter((port) => port.id.startsWith("input-")).length
     : node.inputCount;
-  node.previewInput = node.type === "switcher" ? clamp(node.previewInput ?? 1, 1, Math.max(node.inputCount, 1)) : node.previewInput;
-  node.programInput = node.type === "switcher" && node.programInput ? clamp(node.programInput, 1, Math.max(node.inputCount, 1)) : node.programInput;
+  node.previewInput = node.type === "switcher" ? normalizeSwitcherBusSource(node.previewInput ?? 1) : node.previewInput;
+  node.programInput = node.type === "switcher" && node.programInput ? normalizeSwitcherBusSource(node.programInput) : node.programInput;
   if (node.type === "switcher") {
+    node.busMode = getSwitcherBusMode(node);
     ensureSwitcherAudioState(node);
   }
   state.connections = state.connections.filter((connection) => {
@@ -1776,7 +1880,12 @@ function loadSetup(setup, readOnly = state.readOnly) {
     inputs: (node.inputs ?? []).map((port) => ({ ...port })),
     outputs: (node.outputs ?? []).map((port) => ({ ...port }))
   }));
-  state.nodes.filter((node) => node.type === "switcher").forEach(ensureSwitcherAudioState);
+  state.nodes.filter((node) => node.type === "switcher").forEach((node) => {
+    node.busMode = getSwitcherBusMode(node);
+    node.previewInput = node.previewInput ? normalizeSwitcherBusSource(node.previewInput) : node.previewInput;
+    node.programInput = node.programInput ? normalizeSwitcherBusSource(node.programInput) : node.programInput;
+    ensureSwitcherAudioState(node);
+  });
   state.connections = (setup.connections ?? []).map((connection) => ({ ...connection }));
   state.readOnly = readOnly;
   render();
@@ -1992,7 +2101,7 @@ deviceLayer.addEventListener("click", (event) => {
   }
 
   if (action === "select-preview") {
-    selectPreview(actionTarget.dataset.nodeId, Number(actionTarget.dataset.input));
+    selectPreview(actionTarget.dataset.nodeId, actionTarget.dataset.input);
   }
 
   if (action === "set-audio-source") {
@@ -2017,6 +2126,10 @@ deviceLayer.addEventListener("click", (event) => {
 
   if (action === "auto") {
     auto(actionTarget.dataset.nodeId);
+  }
+
+  if (action === "toggle-switcher-bus-mode") {
+    toggleSwitcherBusMode(actionTarget.dataset.nodeId);
   }
 
   if (action === "remove-node") {

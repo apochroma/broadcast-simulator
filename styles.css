@@ -741,7 +741,7 @@ body.is-read-only #openGearLibrary {
 }
 
 .switcher {
-  width: 1822px;
+  width: 1894px;
   background: linear-gradient(180deg, #242b33, #171b20);
 }
 
@@ -790,14 +790,14 @@ body.is-read-only #openGearLibrary {
 
 .atem-control-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 122px 422px;
+  grid-template-columns: minmax(0, 1fr) 122px 494px;
   gap: 18px;
   align-items: end;
 }
 
 .atem-top-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 422px;
+  grid-template-columns: minmax(0, 1fr) 494px;
   gap: 18px;
   align-items: start;
   margin-bottom: 16px;
@@ -859,6 +859,11 @@ body.is-read-only #openGearLibrary {
   align-content: end;
 }
 
+.atem-transition-bank {
+  justify-self: end;
+  width: 422px;
+}
+
 .panel-button,
 .source-button,
 .switcher-action {
@@ -898,16 +903,49 @@ body.is-read-only #openGearLibrary {
   font-size: 0.72rem;
 }
 
+.panel-button.media-source-button {
+  cursor: pointer;
+}
+
+.panel-button.media-source-button.is-preview {
+  border-color: #0f2719;
+  background: linear-gradient(#53e493, #32cc78);
+  color: #06120b;
+}
+
+.panel-button.media-source-button.is-program {
+  border-color: #5d0710;
+  background: linear-gradient(#ff4961, #ff263d);
+  color: #fff;
+}
+
 .panel-button.transition-extra {
   height: 84px;
   min-height: 0;
   font-size: 1rem;
 }
 
-.audio-button.is-active {
-  border-color: #0f2719;
-  background: linear-gradient(#4ee28b, #26b96a);
-  color: #06120b;
+.audio-button.is-active,
+.panel-button.is-lit {
+  border-color: #ff2c38;
+  background: linear-gradient(#151010, #030303);
+  color: #ff4148;
+  text-shadow: 0 0 7px rgba(255, 55, 66, 0.9);
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 64, 72, 0.2),
+    0 0 0 1px rgba(255, 44, 56, 0.9),
+    0 0 10px rgba(255, 44, 56, 0.7),
+    0 2px 0 rgba(0, 0, 0, 0.55);
+}
+
+.switcher-mode-button {
+  background: #f4f7f8;
+  color: #11171b;
+}
+
+.switcher-mode-button.is-cut-bus {
+  background: var(--program);
+  color: #fff;
 }
 
 .top-device-control {
@@ -950,6 +988,8 @@ body.is-read-only #openGearLibrary {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   align-items: start;
+  justify-self: end;
+  width: 422px;
 }
 
 .status-column {
@@ -1015,6 +1055,7 @@ body.is-read-only #openGearLibrary {
 .right-master-column.cut-column {
   grid-area: cut;
   align-items: end;
+  align-self: start;
 }
 
 .right-master-column.auto-column {
@@ -1034,8 +1075,8 @@ body.is-read-only #openGearLibrary {
 
 .pip-control {
   position: absolute;
-  right: calc(100% + 10px);
-  bottom: 0;
+  top: 0;
+  right: calc(100% + 12px);
   width: 134px;
   align-self: end;
 }
