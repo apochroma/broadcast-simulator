@@ -82,7 +82,7 @@ function makeCanonCameraTemplate(title) {
 }
 
 function makeAtemMiniTemplate(title, inputCount, hdmiOutputs, usbOutputs, hasHeadphones) {
-  return makeAtemTemplate({
+  const template = makeAtemTemplate({
     title,
     inputCount,
     videoSignal: "HDMI",
@@ -90,8 +90,14 @@ function makeAtemMiniTemplate(title, inputCount, hdmiOutputs, usbOutputs, hasHea
     hdmiOutputs,
     usbOutputs,
     hasHeadphones,
-    width: inputCount > 4 ? 430 : 370
+    width: inputCount > 4 ? 1822 : 700
   });
+
+  if (inputCount > 4) {
+    template.image = "assets/blackmagic-bm-swatemminicext-atem-mini-extreme.jpg";
+  }
+
+  return template;
 }
 
 function makeAtemSdiTemplate(title, inputCount, sdiOutputs, usbOutputs, hasHeadphones) {
@@ -103,7 +109,7 @@ function makeAtemSdiTemplate(title, inputCount, sdiOutputs, usbOutputs, hasHeadp
     sdiOutputs,
     usbOutputs,
     hasHeadphones,
-    width: inputCount > 4 ? 430 : 370
+    width: inputCount > 4 ? 1822 : 700
   });
 }
 
@@ -223,7 +229,7 @@ function addGear(type, customTemplate) {
   const resolvedType = legacyGearAliases[type] ?? type;
   const template = customTemplate ?? gearLibrary[resolvedType];
   const countOfType = state.nodes.filter((node) => node.type === template.type).length + 1;
-  const position = getSpawnPosition(template.type, countOfType);
+  const position = getSpawnPosition(template.type, countOfType, template.width);
   const id = `${template.type}-${state.nextId}`;
   const node = {
     ...template,
@@ -238,6 +244,7 @@ function addGear(type, customTemplate) {
     media: template.type === "computer" ? createPlaceholderMedia("Computer") : null,
     previewInput: template.type === "switcher" ? 1 : null,
     programInput: null,
+    audio: template.type === "switcher" ? createSwitcherAudioState(template.inputCount) : null,
     pattern: cameraPatterns[(countOfType - 1) % cameraPatterns.length]
   };
 
@@ -251,11 +258,13 @@ function addGear(type, customTemplate) {
   render();
 }
 
-function getSpawnPosition(type, countOfType) {
+function getSpawnPosition(type, countOfType, width = 280) {
   const viewportOrigin = {
     x: workspaceViewport.scrollLeft / state.zoom,
     y: workspaceViewport.scrollTop / state.zoom
   };
+  const visibleWidth = workspaceViewport.clientWidth / state.zoom;
+  const centeredX = viewportOrigin.x + Math.max(0, (visibleWidth - width) / 2);
 
   if (type === "camera") {
     return { x: viewportOrigin.x + 56, y: viewportOrigin.y + 52 + (countOfType - 1) * 350 };
@@ -266,7 +275,13 @@ function getSpawnPosition(type, countOfType) {
   }
 
   if (type === "switcher") {
-    return { x: viewportOrigin.x + 470, y: viewportOrigin.y + 160 + (countOfType - 1) * 380 };
+    const preferredX = viewportOrigin.x + 470;
+    const maxVisibleX = viewportOrigin.x + visibleWidth - width - 18;
+    const x = maxVisibleX > viewportOrigin.x + 56
+      ? clamp(preferredX, viewportOrigin.x + 56, maxVisibleX)
+      : centeredX;
+
+    return { x, y: viewportOrigin.y + 52 + (countOfType - 1) * 380 };
   }
 
   if (type === "splitter") {
@@ -351,18 +366,12 @@ function renderNodeBody(node) {
 
   if (node.type === "switcher") {
     return `
-      ${node.image ? `<img class="gear-image atem-image" src="${node.image}" alt="${node.title}">` : `<div class="simple-device-face">${node.title}</div>`}
+      <div class="simple-device-face switcher-title-face">${node.title}</div>
       <div class="switcher-display">
         <span>Program / Preview</span>
         <strong>${getSwitcherReadout(node)}</strong>
       </div>
-      <div class="source-buttons" style="grid-template-columns: repeat(${node.inputCount}, minmax(0, 1fr))">
-        ${Array.from({ length: node.inputCount }, (_, index) => renderSourceButton(node, index + 1)).join("")}
-      </div>
-      <div class="switcher-actions">
-        <button class="switcher-action auto" type="button" data-action="auto" data-node-id="${node.id}">AUTO</button>
-        <button class="switcher-action cut" type="button" data-action="cut" data-node-id="${node.id}">CUT</button>
-      </div>
+      ${renderSwitcherPanel(node)}
     `;
   }
 
@@ -434,8 +443,275 @@ function renderSockets(node, direction) {
   }).join("");
 }
 
+function renderSwitcherPanel(switcher) {
+  ensureSwitcherAudioState(switcher);
+
+  return `
+    <div class="atem-control-panel">
+      <div class="atem-panel-label">ATEM Mini Extreme</div>
+      ${renderSwitcherTopRow(switcher)}
+      <div class="atem-control-grid">
+        <section class="atem-source-bank" aria-label="Source Buttons">
+          <div class="atem-source-columns" style="grid-template-columns: repeat(${switcher.inputCount}, minmax(0, 1fr))">
+            ${Array.from({ length: switcher.inputCount }, (_, index) => renderSourceColumn(switcher, index + 1)).join("")}
+          </div>
+        </section>
+
+        <section class="atem-extra-bank" aria-label="Media Player und Black">
+          <div class="atem-extra-spacer"></div>
+          <div class="atem-extra-sources">
+            ${["MP1", "MP2", "S/SRC", "BLACK"].map((label) => renderPanelButton(label, "source-extra")).join("")}
+          </div>
+        </section>
+
+        <section class="atem-transition-bank" aria-label="Transition">
+          <div class="atem-transition-top">
+            ${renderRightControlPanel()}
+          </div>
+          <div class="switcher-actions">
+            <button class="switcher-action cut" type="button" data-action="cut" data-node-id="${switcher.id}">CUT</button>
+            <button class="switcher-action auto" type="button" data-action="auto" data-node-id="${switcher.id}">AUTO</button>
+            ${renderPanelButton("FTB", "transition-extra")}
+          </div>
+        </section>
+      </div>
+    </div>
+  `;
+}
+
+function renderRightControlPanel() {
+  return `
+    <div class="right-control-panel">
+      <section class="right-control-group pip-control" aria-label="Picture in Picture">
+        <div class="right-group-buttons two-col">
+          ${["ON", "OFF", "◱", "◰", "◲", "◳", "▔", "▁"].map((label) => renderPanelButton(label)).join("")}
+        </div>
+        <strong>PICTURE IN PICTURE</strong>
+      </section>
+
+      <div class="right-master-column cut-column">
+        <div class="macro-duration-stack">
+          <section class="right-control-group macro-control" aria-label="Macro">
+            <div class="right-group-buttons two-col">
+              ${["1", "2", "3", "4", "5", "6"].map((label) => renderPanelButton(label)).join("")}
+            </div>
+            <strong>MACRO</strong>
+          </section>
+
+          <section class="right-control-group duration-control" aria-label="Duration">
+            <div class="right-group-buttons two-col">
+              ${["0.5", "1.0", "1.5", "2.0"].map((label) => renderPanelButton(label)).join("")}
+            </div>
+            <strong>DURATION</strong>
+          </section>
+        </div>
+      </div>
+
+      <div class="right-master-column auto-column">
+        <section class="right-control-group effect-control" aria-label="Effect">
+          <div class="right-group-buttons two-col">
+            ${["↔", "↕", "◀", "▶", "●", "■", "◩", "◪", "▌", "▬", "MIX", "DIP"].map((label) => renderPanelButton(label)).join("")}
+          </div>
+          <strong>EFFECT</strong>
+        </section>
+      </div>
+
+      <div class="right-master-column ftb-column">
+        <section class="right-control-group video-out-control" aria-label="Video Out">
+          <div class="right-group-buttons two-col">
+            ${["1", "2", "3", "4", "5", "6", "7", "8", "CLEAN", "PVW", "M/V", "PGM"].map((label) => renderPanelButton(label)).join("")}
+          </div>
+          <strong>VIDEO OUT</strong>
+        </section>
+      </div>
+    </div>
+  `;
+}
+
+function renderSwitcherTopRow(switcher) {
+  return `
+    <div class="atem-top-grid">
+      <section class="atem-top-source-bank" aria-label="Select Bus und Audio oben">
+        <div class="atem-top-source-columns" style="grid-template-columns: repeat(${switcher.inputCount}, minmax(0, 1fr)) 122px">
+          ${renderMicControl(switcher, "mic1", "MIC 1")}
+          ${renderMicControl(switcher, "mic2", "MIC 2")}
+          ${renderHeadphoneControl()}
+          <div class="select-bus-core">
+            <div class="select-bus-buttons">
+              ${[
+                "1", "2", "3", "4", "5", "6", "7", "8", "MP1", "MP2", "COL 1", "COL 2", "BARS", "BLACK",
+                "K1 LUM", "K1 CHR", "K1 PTH", "K2 LUM", "K2 CHR", "K2 PTH", "DSK 1", "DSK 2", "DVE 1", "DVE 2", "DIP", "WIPE", "LOGO", "STING"
+              ].map((label) => renderPanelButton(label)).join("")}
+            </div>
+            <strong>SELECT BUS</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="atem-status-bank" aria-label="Key, Record und Stream">
+        <div></div>
+        <div class="status-column">
+          ${renderStatusControl("KEY 1", ["ON", "OFF"])}
+          ${renderStatusControl("DSK 1", ["ON", "OFF"])}
+        </div>
+        <div class="status-column">
+          ${renderStatusControl("RECORD", ["REC", "STOP"])}
+          ${renderStatusControl("STREAM", ["ON AIR", "OFF"])}
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function renderSourceColumn(switcher, input) {
+  const mode = switcher.audio?.sources?.[input] ?? "off";
+
+  return `
+    <div class="atem-source-column">
+      ${renderSourceTopControls(switcher, input)}
+      <div class="atem-source-control-grid">
+      ${renderAudioButton(switcher, input, "afv", "AFV", mode)}
+      ${renderAudioButton(switcher, input, "reset", "RESET", mode)}
+      ${renderAudioButton(switcher, input, "on", "ON", mode)}
+      ${renderAudioButton(switcher, input, "off", "OFF", mode)}
+        ${renderPanelButton("▲")}
+        ${renderPanelButton("▼")}
+      </div>
+      ${renderSourceButton(switcher, input)}
+    </div>
+  `;
+}
+
+function renderSourceTopControls(switcher, input) {
+  return `
+    <div class="atem-source-top-controls">
+      <div class="atem-source-control-grid">
+        ${["GAIN", "FOCUS", "BLACK", "SHUT", "▲", "▼"].map((label) => renderPanelButton(label)).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderAudioButton(switcher, input, mode, label, activeMode) {
+  const isActive = mode !== "reset" && mode !== "off" && activeMode === mode;
+
+  return `
+    <button class="panel-button audio-button ${isActive ? "is-active" : ""}"
+      type="button"
+      data-action="set-audio-source"
+      data-node-id="${switcher.id}"
+      data-input="${input}"
+      data-mode="${mode}"
+      aria-pressed="${isActive}">
+      ${label}
+    </button>
+  `;
+}
+
+function renderMicControl(switcher, micId, label) {
+  const mode = switcher.audio?.mics?.[micId] ?? "off";
+
+  return `
+    <div class="top-device-control">
+      <div class="top-device-buttons">
+        <button class="panel-button audio-button ${mode === "on" ? "is-active" : ""}"
+          type="button"
+          data-action="set-mic-audio"
+          data-node-id="${switcher.id}"
+          data-mic="${micId}"
+          data-mode="on"
+          aria-pressed="${mode === "on"}">ON</button>
+        <button class="panel-button audio-button"
+          type="button"
+          data-action="set-mic-audio"
+          data-node-id="${switcher.id}"
+          data-mic="${micId}"
+          data-mode="off"
+          aria-pressed="false">OFF</button>
+        ${renderPanelButton("▲")}
+        ${renderPanelButton("▼")}
+      </div>
+      <strong>${label}</strong>
+    </div>
+  `;
+}
+
+function renderHeadphoneControl() {
+  return `
+    <div class="top-device-control">
+      <div class="top-device-buttons">
+        ${["MUTE", "RESET", "▲", "▼"].map((label) => renderPanelButton(label)).join("")}
+      </div>
+      <strong>HEADPHONE</strong>
+    </div>
+  `;
+}
+
+function renderStatusControl(label, buttons) {
+  return `
+    <div class="top-device-control status-control">
+      <div class="top-device-buttons">
+        ${buttons.map((buttonLabel) => renderPanelButton(buttonLabel)).join("")}
+      </div>
+      <strong>${label}</strong>
+    </div>
+  `;
+}
+
+function renderPanelButton(label, variant = "") {
+  return `<button class="panel-button ${variant}" type="button" disabled>${label}</button>`;
+}
+
+function createSwitcherAudioState(inputCount = 0) {
+  return {
+    sources: Object.fromEntries(Array.from({ length: inputCount }, (_, index) => [index + 1, "off"])),
+    mics: {
+      mic1: "off",
+      mic2: "off"
+    }
+  };
+}
+
+function ensureSwitcherAudioState(switcher) {
+  if (!switcher.audio) {
+    switcher.audio = createSwitcherAudioState(switcher.inputCount);
+  }
+
+  switcher.audio.sources ??= {};
+  switcher.audio.mics ??= {};
+
+  Array.from({ length: switcher.inputCount }, (_, index) => index + 1).forEach((input) => {
+    switcher.audio.sources[input] ??= "off";
+  });
+  switcher.audio.mics.mic1 ??= "off";
+  switcher.audio.mics.mic2 ??= "off";
+}
+
+function setAudioSourceMode(switcherId, input, mode) {
+  const switcher = getNode(switcherId);
+
+  if (switcher?.type !== "switcher") {
+    return;
+  }
+
+  ensureSwitcherAudioState(switcher);
+  switcher.audio.sources[input] = mode === "reset" ? "off" : mode;
+  render();
+}
+
+function setMicAudioMode(switcherId, micId, mode) {
+  const switcher = getNode(switcherId);
+
+  if (switcher?.type !== "switcher") {
+    return;
+  }
+
+  ensureSwitcherAudioState(switcher);
+  switcher.audio.mics[micId] = mode;
+  render();
+}
+
 function renderSourceButton(switcher, input) {
-  const source = getSwitcherInputSource(switcher, input);
   const isProgram = switcher.programInput === input;
   const isPreview = switcher.previewInput === input && !isProgram;
   const buttonClass = [
@@ -446,8 +722,7 @@ function renderSourceButton(switcher, input) {
 
   return `
     <button class="${buttonClass}" type="button" data-action="select-preview" data-node-id="${switcher.id}" data-input="${input}" aria-pressed="${isPreview || isProgram}">
-      <span>${input}</span>
-      <small>${source ? source.shortName : "leer"}</small>
+      ${input}
     </button>
   `;
 }
@@ -1206,6 +1481,10 @@ function createNodeClipboardSnapshot(node) {
     inputs: (node.inputs ?? []).map((port) => ({ ...port })),
     outputs: (node.outputs ?? []).map((port) => ({ ...port })),
     media: node.media ? { ...node.media } : node.media,
+    audio: node.audio ? {
+      sources: { ...node.audio.sources },
+      mics: { ...node.audio.mics }
+    } : node.audio,
     transition: null,
     isTransitioning: false
   };
@@ -1224,6 +1503,10 @@ function createNodeFromClipboardSnapshot(snapshot) {
     inputs: (snapshot.inputs ?? []).map((port) => ({ ...port })),
     outputs: (snapshot.outputs ?? []).map((port) => ({ ...port })),
     media: snapshot.media ? { ...snapshot.media } : snapshot.media,
+    audio: snapshot.audio ? {
+      sources: { ...snapshot.audio.sources },
+      mics: { ...snapshot.audio.mics }
+    } : snapshot.audio,
     transition: null,
     isTransitioning: false
   };
@@ -1231,6 +1514,7 @@ function createNodeFromClipboardSnapshot(snapshot) {
   if (node.type === "switcher") {
     node.programInput = null;
     node.previewInput = clamp(node.previewInput ?? 1, 1, Math.max(node.inputCount ?? 1, 1));
+    ensureSwitcherAudioState(node);
   }
 
   return node;
@@ -1437,6 +1721,9 @@ function saveEditGear() {
     : node.inputCount;
   node.previewInput = node.type === "switcher" ? clamp(node.previewInput ?? 1, 1, Math.max(node.inputCount, 1)) : node.previewInput;
   node.programInput = node.type === "switcher" && node.programInput ? clamp(node.programInput, 1, Math.max(node.inputCount, 1)) : node.programInput;
+  if (node.type === "switcher") {
+    ensureSwitcherAudioState(node);
+  }
   state.connections = state.connections.filter((connection) => {
     if (connection.from.nodeId === node.id && !outputIds.has(connection.from.portId)) {
       return false;
@@ -1489,6 +1776,7 @@ function loadSetup(setup, readOnly = state.readOnly) {
     inputs: (node.inputs ?? []).map((port) => ({ ...port })),
     outputs: (node.outputs ?? []).map((port) => ({ ...port }))
   }));
+  state.nodes.filter((node) => node.type === "switcher").forEach(ensureSwitcherAudioState);
   state.connections = (setup.connections ?? []).map((connection) => ({ ...connection }));
   state.readOnly = readOnly;
   render();
@@ -1705,6 +1993,14 @@ deviceLayer.addEventListener("click", (event) => {
 
   if (action === "select-preview") {
     selectPreview(actionTarget.dataset.nodeId, Number(actionTarget.dataset.input));
+  }
+
+  if (action === "set-audio-source") {
+    setAudioSourceMode(actionTarget.dataset.nodeId, Number(actionTarget.dataset.input), actionTarget.dataset.mode);
+  }
+
+  if (action === "set-mic-audio") {
+    setMicAudioMode(actionTarget.dataset.nodeId, actionTarget.dataset.mic, actionTarget.dataset.mode);
   }
 
   if (action === "toggle-camera-view") {
