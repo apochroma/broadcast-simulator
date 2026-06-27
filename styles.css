@@ -632,6 +632,77 @@ body.is-read-only #openGearLibrary {
   border-radius: 5px;
 }
 
+.pip-picture {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 5px;
+  background: #050607;
+}
+
+.pip-program-layer,
+.pip-program-layer .test-picture,
+.pip-program-layer .media-surface {
+  width: 100%;
+  height: 100%;
+}
+
+.pip-slot {
+  position: absolute;
+  width: 28%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 2px solid rgba(255, 255, 255, 0.84);
+  border-radius: 4px;
+  background: #050607;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
+.pip-slot .test-picture,
+.pip-slot .media-surface {
+  width: 100%;
+  height: 100%;
+  border-radius: 2px;
+}
+
+.pip-slot .test-picture span {
+  padding: 0 4px;
+  font-size: clamp(0.5rem, 1.1vw, 0.82rem);
+}
+
+.pip-slot-top-left {
+  top: 8%;
+  left: 8%;
+}
+
+.pip-slot-top-right {
+  top: 8%;
+  right: 8%;
+}
+
+.pip-slot-bottom-left {
+  bottom: 8%;
+  left: 8%;
+}
+
+.pip-slot-bottom-right {
+  right: 8%;
+  bottom: 8%;
+}
+
+.pip-slot-middle-left {
+  top: 50%;
+  left: 8%;
+  transform: translateY(-50%);
+}
+
+.pip-slot-middle-right {
+  top: 50%;
+  right: 8%;
+  transform: translateY(-50%);
+}
+
 .transition-layer.is-from {
   animation: fadeFrom var(--transition-duration, 650ms) ease-in-out forwards;
 }
@@ -920,12 +991,88 @@ body.is-read-only #openGearLibrary {
 }
 
 .duration-button.is-selected,
-.video-out-button.is-selected {
+.video-out-button.is-selected,
+.pip-button.is-selected {
   border-color: #f3f5f6;
   box-shadow:
     inset 0 0 0 2px rgba(255, 255, 255, 0.28),
     0 0 0 1px rgba(255, 255, 255, 0.72),
     0 2px 0 rgba(0, 0, 0, 0.55);
+}
+
+.pip-button {
+  cursor: pointer;
+}
+
+.pip-icon-button {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+.pip-icon {
+  position: relative;
+  display: block;
+  width: 40px;
+  height: 22px;
+  border-radius: 2px;
+  background: linear-gradient(#25282b, #17191b);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.pip-icon::before,
+.pip-icon::after {
+  content: "";
+  position: absolute;
+  border-radius: 1px;
+  background: linear-gradient(#f3f5f6, #dfe3e5);
+}
+
+.pip-icon::before {
+  width: 15px;
+  height: 9px;
+}
+
+.pip-icon-top-left::before {
+  top: 3px;
+  left: 4px;
+}
+
+.pip-icon-top-right::before {
+  top: 3px;
+  right: 4px;
+}
+
+.pip-icon-bottom-left::before {
+  bottom: 3px;
+  left: 4px;
+}
+
+.pip-icon-bottom-right::before {
+  right: 4px;
+  bottom: 3px;
+}
+
+.pip-icon-middle-left::before {
+  top: 50%;
+  left: 4px;
+  transform: translateY(-50%);
+}
+
+.pip-icon-middle-split::before,
+.pip-icon-middle-split::after {
+  top: 50%;
+  width: 14px;
+  height: 10px;
+  transform: translateY(-50%);
+}
+
+.pip-icon-middle-split::before {
+  left: 5px;
+}
+
+.pip-icon-middle-split::after {
+  right: 5px;
 }
 
 .panel-button.transition-extra {

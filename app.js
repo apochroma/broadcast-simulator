@@ -72,6 +72,22 @@ const switcherMediaSources = [
   { id: "black", label: "BLACK", shortName: "BLACK", name: "Black", pattern: "#000" }
 ];
 
+const pipPresets = [
+  { id: "top-left", label: "Oben links", slots: [{ input: 1, position: "top-left" }] },
+  { id: "top-right", label: "Oben rechts", slots: [{ input: 1, position: "top-right" }] },
+  { id: "bottom-left", label: "Unten links", slots: [{ input: 1, position: "bottom-left" }] },
+  { id: "bottom-right", label: "Unten rechts", slots: [{ input: 1, position: "bottom-right" }] },
+  { id: "middle-left", label: "Mitte links", slots: [{ input: 1, position: "middle-left" }] },
+  {
+    id: "middle-split",
+    label: "Mitte links und rechts",
+    slots: [
+      { input: 1, position: "middle-left" },
+      { input: 2, position: "middle-right" }
+    ]
+  }
+];
+
 function makeCanonCameraTemplate(title) {
   return {
     type: "camera",
@@ -255,6 +271,8 @@ function addGear(type, customTemplate) {
     transitionDuration: template.type === "switcher" ? 0.5 : null,
     multiviewMode: template.type === "switcher" ? "multiview" : null,
     multiviewInput: null,
+    pipEnabled: false,
+    pipPreset: template.type === "switcher" ? "top-left" : null,
     isRecording: false,
     isStreaming: false,
     cutFlashing: false,
@@ -514,7 +532,9 @@ function renderRightControlPanel(switcher) {
     <div class="right-control-panel">
       <section class="right-control-group pip-control" aria-label="Picture in Picture">
         <div class="right-group-buttons two-col">
-          ${["ON", "OFF", "◱", "◰", "◲", "◳", "▔", "▁"].map((label) => renderPanelButton(label)).join("")}
+          ${renderPipPowerButton(switcher, "ON", true)}
+          ${renderPipPowerButton(switcher, "OFF", false)}
+          ${pipPresets.map((preset) => renderPipPresetButton(switcher, preset)).join("")}
         </div>
         <strong>PICTURE IN PICTURE</strong>
       </section>
@@ -768,6 +788,43 @@ function renderVideoOutButton(switcher, label, mode, input = "") {
   `;
 }
 
+function renderPipPowerButton(switcher, label, enabled) {
+  const isActive = Boolean(switcher.pipEnabled) === enabled;
+  const buttonClass = [
+    "panel-button",
+    "pip-button",
+    isActive ? "is-selected" : "",
+    enabled && isActive ? "is-lit" : ""
+  ].filter(Boolean).join(" ");
+
+  return `
+    <button class="${buttonClass}"
+      type="button"
+      data-action="set-pip-enabled"
+      data-node-id="${switcher.id}"
+      data-enabled="${enabled}"
+      aria-pressed="${isActive}">
+      ${label}
+    </button>
+  `;
+}
+
+function renderPipPresetButton(switcher, preset) {
+  const isActive = getSwitcherPipPreset(switcher) === preset.id;
+
+  return `
+    <button class="panel-button pip-button pip-icon-button ${isActive ? "is-selected" : ""}"
+      type="button"
+      data-action="set-pip-preset"
+      data-node-id="${switcher.id}"
+      data-pip-preset="${preset.id}"
+      aria-label="${preset.label}"
+      aria-pressed="${isActive}">
+      <span class="pip-icon pip-icon-${preset.id}" aria-hidden="true"></span>
+    </button>
+  `;
+}
+
 function renderPanelButton(label, variant = "") {
   return `<button class="panel-button ${variant}" type="button" disabled>${label}</button>`;
 }
@@ -881,6 +938,10 @@ function renderMonitorPicture(monitor) {
     return renderNoSignalPicture();
   }
 
+  if (feed.pipSwitcher) {
+    return renderPipPicture(feed.pipSwitcher, feed.source);
+  }
+
   return renderSignalPicture(feed.source);
 }
 
@@ -963,6 +1024,28 @@ function renderSignalPicture(source) {
   return `
     <div class="test-picture" style="background: ${source.pattern ?? "#20262d"}">
       <span>${source.title}</span>
+    </div>
+  `;
+}
+
+function renderPipPicture(switcher, programSource) {
+  if (!switcher.pipEnabled) {
+    return renderSignalPicture(programSource);
+  }
+
+  return `
+    <div class="pip-picture">
+      <div class="pip-program-layer">
+        ${renderSignalPicture(programSource)}
+      </div>
+      ${getSwitcherPipSlots(switcher).map((slot) => {
+        const source = getSwitcherInputSource(switcher, slot.input);
+        return `
+          <div class="pip-slot pip-slot-${slot.position}">
+            ${source ? renderSignalPicture(source) : renderNoSignalPicture()}
+          </div>
+        `;
+      }).join("")}
     </div>
   `;
 }
@@ -1108,7 +1191,12 @@ function getMonitorFeed(monitor) {
       return { type: "program", connected: true, transition: activeTransition, source: null };
     }
 
-    return { type: "program", connected: true, source: getSwitcherProgramSource(fromNode) };
+    return {
+      type: "program",
+      connected: true,
+      source: getSwitcherProgramSource(fromNode),
+      pipSwitcher: fromNode
+    };
   }
 
   return { type: "program", connected: true, source: resolveSourceFromPort(inputConnection.from) };
@@ -1117,7 +1205,16 @@ function getMonitorFeed(monitor) {
 function getSwitcherMultiviewFeed(switcher) {
   const mode = getSwitcherMultiviewMode(switcher);
 
-  if (mode === "program" || mode === "clean") {
+  if (mode === "program") {
+    return {
+      type: "program",
+      connected: true,
+      source: getSwitcherProgramSource(switcher),
+      pipSwitcher: switcher
+    };
+  }
+
+  if (mode === "clean") {
     return { type: "program", connected: true, source: getSwitcherProgramSource(switcher) };
   }
 
@@ -1186,6 +1283,14 @@ function getSwitcherMultiviewMode(switcher) {
   return ["multiview", "program", "preview", "clean", "input"].includes(switcher?.multiviewMode)
     ? switcher.multiviewMode
     : "multiview";
+}
+
+function getSwitcherPipPreset(switcher) {
+  return pipPresets.some((preset) => preset.id === switcher?.pipPreset) ? switcher.pipPreset : "top-left";
+}
+
+function getSwitcherPipSlots(switcher) {
+  return pipPresets.find((preset) => preset.id === getSwitcherPipPreset(switcher))?.slots ?? pipPresets[0].slots;
 }
 
 function getSwitcherBusSourceLabel(source) {
@@ -1725,6 +1830,8 @@ function createNodeFromClipboardSnapshot(snapshot) {
     node.multiviewInput = node.multiviewMode === "input"
       ? clamp(Number(node.multiviewInput ?? 1), 1, Math.max(node.inputCount ?? 1, 1))
       : null;
+    node.pipEnabled = Boolean(node.pipEnabled);
+    node.pipPreset = getSwitcherPipPreset(node);
     ensureSwitcherAudioState(node);
   }
 
@@ -1836,6 +1943,31 @@ function setMultiviewOutput(switcherId, mode, input = "") {
   switcher.multiviewInput = mode === "input"
     ? clamp(Number(input), 1, Math.max(switcher.inputCount ?? 1, 1))
     : null;
+  state.activeSwitcherId = switcher.id;
+  render();
+}
+
+function setPipEnabled(switcherId, enabled) {
+  const switcher = getNode(switcherId);
+
+  if (switcher?.type !== "switcher") {
+    return;
+  }
+
+  switcher.pipEnabled = enabled === true || enabled === "true";
+  switcher.pipPreset = getSwitcherPipPreset(switcher);
+  state.activeSwitcherId = switcher.id;
+  render();
+}
+
+function setPipPreset(switcherId, presetId) {
+  const switcher = getNode(switcherId);
+
+  if (switcher?.type !== "switcher" || !pipPresets.some((preset) => preset.id === presetId)) {
+    return;
+  }
+
+  switcher.pipPreset = presetId;
   state.activeSwitcherId = switcher.id;
   render();
 }
@@ -2015,6 +2147,8 @@ function saveEditGear() {
     node.multiviewInput = node.multiviewMode === "input"
       ? clamp(Number(node.multiviewInput ?? 1), 1, Math.max(node.inputCount ?? 1, 1))
       : null;
+    node.pipEnabled = Boolean(node.pipEnabled);
+    node.pipPreset = getSwitcherPipPreset(node);
     ensureSwitcherAudioState(node);
   }
   state.connections = state.connections.filter((connection) => {
@@ -2078,6 +2212,8 @@ function loadSetup(setup, readOnly = state.readOnly) {
     node.multiviewInput = node.multiviewMode === "input"
       ? clamp(Number(node.multiviewInput ?? 1), 1, Math.max(node.inputCount ?? 1, 1))
       : null;
+    node.pipEnabled = Boolean(node.pipEnabled);
+    node.pipPreset = getSwitcherPipPreset(node);
     node.cutFlashing = false;
     node.isRecording = Boolean(node.isRecording);
     node.isStreaming = Boolean(node.isStreaming);
@@ -2319,6 +2455,14 @@ deviceLayer.addEventListener("click", (event) => {
 
   if (action === "set-multiview-output") {
     setMultiviewOutput(actionTarget.dataset.nodeId, actionTarget.dataset.viewMode, actionTarget.dataset.input);
+  }
+
+  if (action === "set-pip-enabled") {
+    setPipEnabled(actionTarget.dataset.nodeId, actionTarget.dataset.enabled);
+  }
+
+  if (action === "set-pip-preset") {
+    setPipPreset(actionTarget.dataset.nodeId, actionTarget.dataset.pipPreset);
   }
 
   if (action === "toggle-camera-view") {
