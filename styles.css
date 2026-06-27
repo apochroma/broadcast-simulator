@@ -428,7 +428,7 @@ body.is-read-only #openGearLibrary {
 }
 
 .node.is-transitioning {
-  animation: transitionPulse 650ms ease-in-out;
+  animation: transitionPulse var(--transition-duration, 650ms) ease-in-out;
 }
 
 .node.is-file-hover {
@@ -633,11 +633,11 @@ body.is-read-only #openGearLibrary {
 }
 
 .transition-layer.is-from {
-  animation: fadeFrom 650ms ease-in-out forwards;
+  animation: fadeFrom var(--transition-duration, 650ms) ease-in-out forwards;
 }
 
 .transition-layer.is-to {
-  animation: fadeTo 650ms ease-in-out forwards;
+  animation: fadeTo var(--transition-duration, 650ms) ease-in-out forwards;
 }
 
 @keyframes fadeFrom {
@@ -919,6 +919,15 @@ body.is-read-only #openGearLibrary {
   color: #fff;
 }
 
+.duration-button.is-selected,
+.video-out-button.is-selected {
+  border-color: #f3f5f6;
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 255, 255, 0.28),
+    0 0 0 1px rgba(255, 255, 255, 0.72),
+    0 2px 0 rgba(0, 0, 0, 0.55);
+}
+
 .panel-button.transition-extra {
   height: 84px;
   min-height: 0;
@@ -1144,8 +1153,8 @@ body.is-read-only #openGearLibrary {
 }
 
 .switcher-action.cut {
-  background: var(--program);
-  color: #fff;
+  background: #f4f7f8;
+  color: #11171b;
 }
 
 .switcher-action.auto {
@@ -1153,9 +1162,15 @@ body.is-read-only #openGearLibrary {
   color: #11171b;
 }
 
-.node.is-transitioning .switcher-action.auto,
+.switcher-action.cut:active,
+.node.is-cut-flashing .switcher-action.cut,
+.node.is-transitioning .switcher-action.auto {
+  background: var(--program);
+  color: #fff;
+}
+
 .node.is-transitioning .monitor-screen {
-  animation: autoBlend 650ms ease-in-out;
+  animation: autoBlend var(--transition-duration, 650ms) ease-in-out;
 }
 
 @keyframes autoBlend {

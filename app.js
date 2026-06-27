@@ -252,6 +252,12 @@ function addGear(type, customTemplate) {
     previewInput: template.type === "switcher" ? 1 : null,
     programInput: null,
     busMode: template.type === "switcher" ? "pgmPrv" : null,
+    transitionDuration: template.type === "switcher" ? 0.5 : null,
+    multiviewMode: template.type === "switcher" ? "multiview" : null,
+    multiviewInput: null,
+    isRecording: false,
+    isStreaming: false,
+    cutFlashing: false,
     audio: template.type === "switcher" ? createSwitcherAudioState(template.inputCount) : null,
     pattern: cameraPatterns[(countOfType - 1) % cameraPatterns.length]
   };
@@ -331,6 +337,7 @@ function renderNode(node) {
     "node",
     node.type,
     node.isTransitioning ? "is-transitioning" : "",
+    node.cutFlashing ? "is-cut-flashing" : "",
     state.selectedNodeId === node.id ? "is-selected" : "",
     programSource?.id === node.id ? "is-program" : "",
     previewSource?.id === node.id ? "is-preview" : ""
@@ -339,7 +346,7 @@ function renderNode(node) {
   return `
     <article class="${classes}"
       data-node-id="${node.id}"
-      style="width: ${node.width}px; transform: translate(${node.position.x}px, ${node.position.y}px)">
+      style="width: ${node.width}px; transform: translate(${node.position.x}px, ${node.position.y}px); --transition-duration: ${getSwitcherTransitionDurationMs(node)}ms">
       ${renderSockets(node, "input")}
       ${renderSockets(node, "output")}
       <div class="node-header drag-handle">
@@ -489,7 +496,7 @@ function renderSwitcherPanel(switcher) {
 
         <section class="atem-transition-bank" aria-label="Transition">
           <div class="atem-transition-top">
-            ${renderRightControlPanel()}
+            ${renderRightControlPanel(switcher)}
           </div>
           <div class="switcher-actions">
             <button class="switcher-action cut" type="button" data-action="cut" data-node-id="${switcher.id}">CUT</button>
@@ -502,7 +509,7 @@ function renderSwitcherPanel(switcher) {
   `;
 }
 
-function renderRightControlPanel() {
+function renderRightControlPanel(switcher) {
   return `
     <div class="right-control-panel">
       <section class="right-control-group pip-control" aria-label="Picture in Picture">
@@ -523,7 +530,7 @@ function renderRightControlPanel() {
 
           <section class="right-control-group duration-control" aria-label="Duration">
             <div class="right-group-buttons two-col">
-              ${["0.5", "1.0", "1.5", "2.0"].map((label) => renderPanelButton(label)).join("")}
+              ${[0.5, 1, 1.5, 2].map((duration) => renderDurationButton(switcher, duration)).join("")}
             </div>
             <strong>DURATION</strong>
           </section>
@@ -542,7 +549,11 @@ function renderRightControlPanel() {
       <div class="right-master-column ftb-column">
         <section class="right-control-group video-out-control" aria-label="Video Out">
           <div class="right-group-buttons two-col">
-            ${["1", "2", "3", "4", "5", "6", "7", "8", "CLEAN", "PVW", "M/V", "PGM"].map((label) => renderPanelButton(label)).join("")}
+            ${[1, 2, 3, 4, 5, 6, 7, 8].map((input) => renderVideoOutButton(switcher, String(input), "input", input)).join("")}
+            ${renderVideoOutButton(switcher, "CLEAN", "clean")}
+            ${renderVideoOutButton(switcher, "PVW", "preview")}
+            ${renderVideoOutButton(switcher, "M/V", "multiview")}
+            ${renderVideoOutButton(switcher, "PGM", "program")}
           </div>
           <strong>VIDEO OUT</strong>
         </section>
@@ -574,12 +585,12 @@ function renderSwitcherTopRow(switcher) {
       <section class="atem-status-bank" aria-label="Key, Record und Stream">
         <div></div>
         <div class="status-column">
-          ${renderStatusControl("KEY 1", ["ON", "OFF"])}
-          ${renderStatusControl("DSK 1", ["ON", "OFF"])}
+          ${renderStatusControl(switcher, "KEY 1", ["ON", "OFF"])}
+          ${renderStatusControl(switcher, "DSK 1", ["ON", "OFF"])}
         </div>
         <div class="status-column">
-          ${renderStatusControl("RECORD", ["REC", "STOP"])}
-          ${renderStatusControl("STREAM", ["ON AIR", "OFF"])}
+          ${renderStatusControl(switcher, "RECORD", ["REC", "STOP"])}
+          ${renderStatusControl(switcher, "STREAM", ["ON AIR", "OFF"])}
         </div>
       </section>
     </div>
@@ -670,17 +681,90 @@ function renderHeadphoneControl() {
   `;
 }
 
-function renderStatusControl(label, buttons) {
+function renderStatusControl(switcher, label, buttons) {
   return `
     <div class="top-device-control status-control">
       <div class="top-device-buttons">
         ${buttons.map((buttonLabel) => {
-          const isLit = buttonLabel === "REC" || buttonLabel === "ON AIR";
-          return renderPanelButton(buttonLabel, isLit ? "is-lit" : "");
+          const statusMode = getStatusButtonMode(label, buttonLabel);
+          const isLit = getSwitcherStatusActive(switcher, label, buttonLabel);
+
+          if (!statusMode) {
+            return renderPanelButton(buttonLabel, isLit ? "is-lit" : "");
+          }
+
+          return `
+            <button class="panel-button ${isLit ? "is-lit" : ""}"
+              type="button"
+              data-action="set-switcher-status"
+              data-node-id="${switcher.id}"
+              data-status="${statusMode.status}"
+              data-enabled="${statusMode.enabled}"
+              aria-pressed="${isLit}">
+              ${buttonLabel}
+            </button>
+          `;
         }).join("")}
       </div>
       <strong>${label}</strong>
     </div>
+  `;
+}
+
+function getStatusButtonMode(label, buttonLabel) {
+  if (label === "RECORD") {
+    return { status: "recording", enabled: buttonLabel === "REC" };
+  }
+
+  if (label === "STREAM") {
+    return { status: "streaming", enabled: buttonLabel === "ON AIR" };
+  }
+
+  return null;
+}
+
+function getSwitcherStatusActive(switcher, label, buttonLabel) {
+  if (label === "RECORD") {
+    return Boolean(switcher.isRecording) && buttonLabel === "REC";
+  }
+
+  if (label === "STREAM") {
+    return Boolean(switcher.isStreaming) && buttonLabel === "ON AIR";
+  }
+
+  return false;
+}
+
+function renderDurationButton(switcher, duration) {
+  const isSelected = getSwitcherTransitionDuration(switcher) === duration;
+  const label = duration.toFixed(1);
+
+  return `
+    <button class="panel-button duration-button ${isSelected ? "is-selected" : ""}"
+      type="button"
+      data-action="set-transition-duration"
+      data-node-id="${switcher.id}"
+      data-duration="${duration}"
+      aria-pressed="${isSelected}">
+      ${label}
+    </button>
+  `;
+}
+
+function renderVideoOutButton(switcher, label, mode, input = "") {
+  const isActive = getSwitcherMultiviewMode(switcher) === mode
+    && (mode !== "input" || Number(switcher.multiviewInput) === input);
+
+  return `
+    <button class="panel-button video-out-button ${isActive ? "is-selected" : ""}"
+      type="button"
+      data-action="set-multiview-output"
+      data-node-id="${switcher.id}"
+      data-view-mode="${mode}"
+      data-input="${input}"
+      aria-pressed="${isActive}">
+      ${label}
+    </button>
   `;
 }
 
@@ -780,7 +864,7 @@ function renderMonitorPicture(monitor) {
   const transition = getMonitorTransition(monitor);
 
   if (transition) {
-    return renderTransitionPicture(transition.fromSource, transition.toSource);
+    return renderTransitionPicture(transition.fromSource, transition.toSource, transition.durationMs);
   }
 
   const feed = getMonitorFeed(monitor);
@@ -790,7 +874,7 @@ function renderMonitorPicture(monitor) {
   }
 
   if (feed.transition) {
-    return renderTransitionPicture(feed.transition.fromSource, feed.transition.toSource);
+    return renderTransitionPicture(feed.transition.fromSource, feed.transition.toSource, feed.transition.durationMs);
   }
 
   if (!feed.source) {
@@ -858,9 +942,9 @@ function resolveSwitcherProgramTransition(switcher, visited = new Set()) {
   return programConnection ? resolveTransitionFromPort(programConnection.from, visited) : null;
 }
 
-function renderTransitionPicture(fromSource, toSource) {
+function renderTransitionPicture(fromSource, toSource, durationMs = 650) {
   return `
-    <div class="transition-picture">
+    <div class="transition-picture" style="--transition-duration: ${durationMs}ms">
       <div class="transition-layer is-from">
         ${fromSource ? renderSignalPicture(fromSource) : renderNoSignalPicture()}
       </div>
@@ -1015,7 +1099,7 @@ function getMonitorFeed(monitor) {
 
   if (fromNode?.type === "switcher") {
     if (inputConnection.from.portId === "multiview-out") {
-      return { type: "multiview", connected: true, switcher: fromNode, source: null };
+      return getSwitcherMultiviewFeed(fromNode);
     }
 
     const activeTransition = resolveTransitionFromPort(inputConnection.from);
@@ -1028,6 +1112,28 @@ function getMonitorFeed(monitor) {
   }
 
   return { type: "program", connected: true, source: resolveSourceFromPort(inputConnection.from) };
+}
+
+function getSwitcherMultiviewFeed(switcher) {
+  const mode = getSwitcherMultiviewMode(switcher);
+
+  if (mode === "program" || mode === "clean") {
+    return { type: "program", connected: true, source: getSwitcherProgramSource(switcher) };
+  }
+
+  if (mode === "preview") {
+    return { type: "program", connected: true, source: getSwitcherPreviewSource(switcher) };
+  }
+
+  if (mode === "input") {
+    return {
+      type: "program",
+      connected: true,
+      source: getSwitcherInputSource(switcher, switcher.multiviewInput)
+    };
+  }
+
+  return { type: "multiview", connected: true, switcher, source: null };
 }
 
 function getSwitcherProgramSource(switcher) {
@@ -1064,6 +1170,22 @@ function normalizeSwitcherBusSource(source) {
 
 function getSwitcherBusMode(switcher) {
   return switcher.busMode === "cutBus" ? "cutBus" : "pgmPrv";
+}
+
+function getSwitcherTransitionDuration(switcher) {
+  const duration = Number(switcher?.transitionDuration);
+
+  return [0.5, 1, 1.5, 2].includes(duration) ? duration : 0.5;
+}
+
+function getSwitcherTransitionDurationMs(switcher) {
+  return Math.round(getSwitcherTransitionDuration(switcher) * 1000);
+}
+
+function getSwitcherMultiviewMode(switcher) {
+  return ["multiview", "program", "preview", "clean", "input"].includes(switcher?.multiviewMode)
+    ? switcher.multiviewMode
+    : "multiview";
 }
 
 function getSwitcherBusSourceLabel(source) {
@@ -1566,6 +1688,7 @@ function createNodeClipboardSnapshot(node) {
       sources: { ...node.audio.sources },
       mics: { ...node.audio.mics }
     } : node.audio,
+    cutFlashing: false,
     transition: null,
     isTransitioning: false
   };
@@ -1588,6 +1711,7 @@ function createNodeFromClipboardSnapshot(snapshot) {
       sources: { ...snapshot.audio.sources },
       mics: { ...snapshot.audio.mics }
     } : snapshot.audio,
+    cutFlashing: false,
     transition: null,
     isTransitioning: false
   };
@@ -1596,6 +1720,11 @@ function createNodeFromClipboardSnapshot(snapshot) {
     node.programInput = null;
     node.previewInput = normalizeSwitcherBusSource(node.previewInput ?? 1);
     node.busMode = getSwitcherBusMode(node);
+    node.transitionDuration = getSwitcherTransitionDuration(node);
+    node.multiviewMode = getSwitcherMultiviewMode(node);
+    node.multiviewInput = node.multiviewMode === "input"
+      ? clamp(Number(node.multiviewInput ?? 1), 1, Math.max(node.inputCount ?? 1, 1))
+      : null;
     ensureSwitcherAudioState(node);
   }
 
@@ -1664,6 +1793,53 @@ function toggleSwitcherBusMode(switcherId) {
   render();
 }
 
+function setTransitionDuration(switcherId, duration) {
+  const switcher = getNode(switcherId);
+  const nextDuration = Number(duration);
+
+  if (switcher?.type !== "switcher" || ![0.5, 1, 1.5, 2].includes(nextDuration)) {
+    return;
+  }
+
+  switcher.transitionDuration = nextDuration;
+  state.activeSwitcherId = switcher.id;
+  render();
+}
+
+function setSwitcherStatus(switcherId, status, enabled) {
+  const switcher = getNode(switcherId);
+
+  if (switcher?.type !== "switcher") {
+    return;
+  }
+
+  if (status === "recording") {
+    switcher.isRecording = enabled === "true";
+  }
+
+  if (status === "streaming") {
+    switcher.isStreaming = enabled === "true";
+  }
+
+  state.activeSwitcherId = switcher.id;
+  render();
+}
+
+function setMultiviewOutput(switcherId, mode, input = "") {
+  const switcher = getNode(switcherId);
+
+  if (switcher?.type !== "switcher" || !["multiview", "program", "preview", "clean", "input"].includes(mode)) {
+    return;
+  }
+
+  switcher.multiviewMode = mode;
+  switcher.multiviewInput = mode === "input"
+    ? clamp(Number(input), 1, Math.max(switcher.inputCount ?? 1, 1))
+    : null;
+  state.activeSwitcherId = switcher.id;
+  render();
+}
+
 function cut(switcherId) {
   const switcher = getNode(switcherId);
 
@@ -1672,7 +1848,13 @@ function cut(switcherId) {
     const previousProgram = switcher.programInput;
     switcher.programInput = switcher.previewInput;
     switcher.previewInput = previousProgram ?? switcher.previewInput;
+    switcher.cutFlashing = true;
     render();
+
+    window.setTimeout(() => {
+      switcher.cutFlashing = false;
+      render();
+    }, 300);
   }
 }
 
@@ -1686,12 +1868,14 @@ function auto(switcherId) {
   state.activeSwitcherId = switcher.id;
   const previousProgram = switcher.programInput;
   const nextProgram = switcher.previewInput;
+  const durationMs = getSwitcherTransitionDurationMs(switcher);
   switcher.transition = {
     switcherId: switcher.id,
     fromInput: previousProgram,
     toInput: nextProgram,
     fromSource: previousProgram ? getSwitcherInputSource(switcher, previousProgram) : null,
-    toSource: getSwitcherInputSource(switcher, nextProgram)
+    toSource: getSwitcherInputSource(switcher, nextProgram),
+    durationMs
   };
   state.activeTransition = switcher.transition;
   switcher.isTransitioning = true;
@@ -1704,7 +1888,7 @@ function auto(switcherId) {
     switcher.transition = null;
     state.activeTransition = null;
     render();
-  }, 650);
+  }, durationMs);
 }
 
 function getNode(nodeId) {
@@ -1826,6 +2010,11 @@ function saveEditGear() {
   node.programInput = node.type === "switcher" && node.programInput ? normalizeSwitcherBusSource(node.programInput) : node.programInput;
   if (node.type === "switcher") {
     node.busMode = getSwitcherBusMode(node);
+    node.transitionDuration = getSwitcherTransitionDuration(node);
+    node.multiviewMode = getSwitcherMultiviewMode(node);
+    node.multiviewInput = node.multiviewMode === "input"
+      ? clamp(Number(node.multiviewInput ?? 1), 1, Math.max(node.inputCount ?? 1, 1))
+      : null;
     ensureSwitcherAudioState(node);
   }
   state.connections = state.connections.filter((connection) => {
@@ -1884,6 +2073,14 @@ function loadSetup(setup, readOnly = state.readOnly) {
     node.busMode = getSwitcherBusMode(node);
     node.previewInput = node.previewInput ? normalizeSwitcherBusSource(node.previewInput) : node.previewInput;
     node.programInput = node.programInput ? normalizeSwitcherBusSource(node.programInput) : node.programInput;
+    node.transitionDuration = getSwitcherTransitionDuration(node);
+    node.multiviewMode = getSwitcherMultiviewMode(node);
+    node.multiviewInput = node.multiviewMode === "input"
+      ? clamp(Number(node.multiviewInput ?? 1), 1, Math.max(node.inputCount ?? 1, 1))
+      : null;
+    node.cutFlashing = false;
+    node.isRecording = Boolean(node.isRecording);
+    node.isStreaming = Boolean(node.isStreaming);
     ensureSwitcherAudioState(node);
   });
   state.connections = (setup.connections ?? []).map((connection) => ({ ...connection }));
@@ -2110,6 +2307,18 @@ deviceLayer.addEventListener("click", (event) => {
 
   if (action === "set-mic-audio") {
     setMicAudioMode(actionTarget.dataset.nodeId, actionTarget.dataset.mic, actionTarget.dataset.mode);
+  }
+
+  if (action === "set-transition-duration") {
+    setTransitionDuration(actionTarget.dataset.nodeId, actionTarget.dataset.duration);
+  }
+
+  if (action === "set-switcher-status") {
+    setSwitcherStatus(actionTarget.dataset.nodeId, actionTarget.dataset.status, actionTarget.dataset.enabled);
+  }
+
+  if (action === "set-multiview-output") {
+    setMultiviewOutput(actionTarget.dataset.nodeId, actionTarget.dataset.viewMode, actionTarget.dataset.input);
   }
 
   if (action === "toggle-camera-view") {
