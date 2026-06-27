@@ -401,6 +401,30 @@ body.is-read-only #openGearLibrary {
   font-weight: 800;
 }
 
+.cable-layer .audio-note {
+  font-size: 34px;
+  font-weight: 900;
+  paint-order: stroke;
+  pointer-events: none;
+  stroke: rgba(5, 6, 7, 0.82);
+  stroke-width: 5px;
+  text-shadow: 0 0 10px currentColor;
+}
+
+.cable-layer .audio-note.is-fading {
+  animation: audioNoteFade 900ms ease-out forwards;
+}
+
+@keyframes audioNoteFade {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
 .node {
   position: absolute;
   width: 270px;

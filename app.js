@@ -186,12 +186,15 @@ const VIDEO_PREVIEW_SECONDS = 5;
 const VIDEO_PREVIEW_WIDTH = 640;
 const VIDEO_PREVIEW_FPS = 15;
 const ORIGINAL_VIDEO_EMBED_LIMIT_BYTES = 40 * 1024 * 1024;
+const AUDIO_FADE_MS = 900;
+const audioNoteColors = ["#d65aff", "#ff4f6a", "#55e6a5", "#ffd166", "#60d8ff", "#f78c3f"];
 
 const state = {
   nextId: 1,
   zoom: 1,
   activeSwitcherId: null,
   activeTransition: null,
+  audioFades: [],
   readOnly: false,
   selectedNodeId: null,
   selectedSocket: null,
@@ -866,6 +869,116 @@ function setAudioSourceMode(switcherId, input, mode) {
   render();
 }
 
+function getSwitcherInputAudioMode(switcher, input) {
+  ensureSwitcherAudioState(switcher);
+  return switcher.audio.sources[input] ?? "off";
+}
+
+function getSwitcherMicAudioMode(switcher, micId) {
+  ensureSwitcherAudioState(switcher);
+  return switcher.audio.mics[micId] ?? "off";
+}
+
+function isSwitcherInputAudioLive(switcher, input) {
+  const mode = getSwitcherInputAudioMode(switcher, input);
+  return mode === "on" || (mode === "afv" && switcher.programInput === input);
+}
+
+function getAudioMarkerColor(seed) {
+  const value = typeof seed === "number"
+    ? seed
+    : String(seed).split("").reduce((total, char) => total + char.charCodeAt(0), 0);
+
+  return audioNoteColors[Math.abs(value) % audioNoteColors.length];
+}
+
+function getSwitcherInputAudioMarker(switcher, input) {
+  const mode = getSwitcherInputAudioMode(switcher, input);
+  const fading = getActiveAudioFade(switcher.id, input);
+
+  if (!isSwitcherInputAudioLive(switcher, input) && !fading) {
+    return null;
+  }
+
+  return {
+    id: `${switcher.id}-input-${input}`,
+    label: `Audio ${input}`,
+    color: getAudioMarkerColor(input),
+    fading: Boolean(fading),
+    muted: mode === "off"
+  };
+}
+
+function getSwitcherMicAudioMarker(switcher, micIndex) {
+  const micId = `mic${micIndex}`;
+
+  if (getSwitcherMicAudioMode(switcher, micId) !== "on") {
+    return null;
+  }
+
+  return {
+    id: `${switcher.id}-${micId}`,
+    label: `Mic ${micIndex}`,
+    color: getAudioMarkerColor(`mic-${micIndex}`)
+  };
+}
+
+function getSwitcherAudioMixMarkers(switcher) {
+  if (switcher?.type !== "switcher") {
+    return [];
+  }
+
+  const sourceMarkers = Array.from({ length: switcher.inputCount }, (_, index) => {
+    return getSwitcherInputAudioMarker(switcher, index + 1);
+  }).filter(Boolean);
+  const micMarkers = [1, 2].map((index) => getSwitcherMicAudioMarker(switcher, index)).filter(Boolean);
+
+  return [...sourceMarkers, ...micMarkers].slice(0, 8);
+}
+
+function getActiveAudioFade(switcherId, input) {
+  const now = Date.now();
+  return state.audioFades.find((fade) => (
+    fade.switcherId === switcherId
+    && fade.input === input
+    && fade.expiresAt > now
+  ));
+}
+
+function purgeExpiredAudioFades() {
+  const now = Date.now();
+  state.audioFades = state.audioFades.filter((fade) => fade.expiresAt > now);
+}
+
+function scheduleAudioFadeCleanup(delay = AUDIO_FADE_MS) {
+  window.setTimeout(() => {
+    purgeExpiredAudioFades();
+    render();
+  }, delay + 40);
+}
+
+function beginAudioFadeForProgramChange(switcher, previousProgram, nextProgram) {
+  if (!switcher || previousProgram === nextProgram || !Number.isInteger(Number(previousProgram))) {
+    return;
+  }
+
+  const input = Number(previousProgram);
+
+  if (getSwitcherInputAudioMode(switcher, input) !== "afv") {
+    return;
+  }
+
+  state.audioFades = state.audioFades.filter((fade) => !(
+    fade.switcherId === switcher.id && fade.input === input
+  ));
+  state.audioFades.push({
+    switcherId: switcher.id,
+    input,
+    expiresAt: Date.now() + AUDIO_FADE_MS
+  });
+  scheduleAudioFadeCleanup();
+}
+
 function setMicAudioMode(switcherId, micId, mode) {
   const switcher = getNode(switcherId);
 
@@ -1337,8 +1450,9 @@ function renderLines() {
   const workspaceRect = workspace.getBoundingClientRect();
   cableLayer.setAttribute("viewBox", `0 0 ${WORLD_WIDTH} ${WORLD_HEIGHT}`);
   cableLayer.innerHTML = "";
+  purgeExpiredAudioFades();
 
-  state.connections.forEach((connection) => {
+  state.connections.forEach((connection, index) => {
     const fromSocket = getSocketElement(connection.from);
     const toSocket = getSocketElement(connection.to);
 
@@ -1348,11 +1462,19 @@ function renderLines() {
 
     const from = getSocketCenter(fromSocket, workspaceRect);
     const to = getSocketCenter(toSocket, workspaceRect);
-    addCable(from, to, getConnectionLabel(connection), getConnectionClass(connection), connection.signal);
+    addCable(
+      from,
+      to,
+      getConnectionLabel(connection),
+      getConnectionClass(connection),
+      connection.signal,
+      getConnectionAudioMarkers(connection),
+      `cable-path-${index}`
+    );
   });
 
   if (activeDrag?.type === "cable") {
-    addCable(activeDrag.start, activeDrag.current, "", "is-preview", activeDrag.from.signal);
+    addCable(activeDrag.start, activeDrag.current, "", "is-preview", activeDrag.from.signal, [], "cable-path-preview");
   }
 }
 
@@ -1369,12 +1491,14 @@ function getSocketCenter(socket, workspaceRect) {
   };
 }
 
-function addCable(start, end, label, className, signal) {
+function addCable(start, end, label, className, signal, audioMarkers = [], pathId = "cable-path") {
   const midX = start.x + (end.x - start.x) / 2;
   const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
   const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+  const pathD = `M ${start.x} ${start.y} C ${midX} ${start.y}, ${midX} ${end.y}, ${end.x} ${end.y}`;
 
-  path.setAttribute("d", `M ${start.x} ${start.y} C ${midX} ${start.y}, ${midX} ${end.y}, ${end.x} ${end.y}`);
+  path.setAttribute("id", pathId);
+  path.setAttribute("d", pathD);
   path.style.stroke = signalColors[signal] ?? signalColors.SDI;
   if (className) {
     path.classList.add(className);
@@ -1385,6 +1509,67 @@ function addCable(start, end, label, className, signal) {
   text.textContent = label;
 
   cableLayer.append(path, text);
+
+  audioMarkers.forEach((marker, index) => {
+    addAudioNote(pathId, marker, index, audioMarkers.length);
+  });
+}
+
+function addAudioNote(pathId, marker, index, markerCount) {
+  const note = document.createElementNS("http://www.w3.org/2000/svg", "text");
+  const motion = document.createElementNS("http://www.w3.org/2000/svg", "animateMotion");
+  const mpath = document.createElementNS("http://www.w3.org/2000/svg", "mpath");
+  const duration = markerCount > 1 ? 3.8 + index * 0.25 : 3.2;
+  const begin = `${-index * 0.55}s`;
+
+  note.classList.add("audio-note");
+  if (marker.fading) {
+    note.classList.add("is-fading");
+  }
+  note.style.color = marker.color;
+  note.style.fill = marker.color;
+  note.setAttribute("aria-label", marker.label);
+  note.textContent = "♪";
+
+  motion.setAttribute("dur", `${duration}s`);
+  motion.setAttribute("begin", begin);
+  motion.setAttribute("repeatCount", "indefinite");
+  motion.setAttribute("rotate", "auto");
+  mpath.setAttribute("href", `#${pathId}`);
+  mpath.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", `#${pathId}`);
+  motion.append(mpath);
+  note.append(motion);
+  cableLayer.append(note);
+}
+
+function getConnectionAudioMarkers(connection) {
+  const fromNode = getNode(connection.from.nodeId);
+  const toNode = getNode(connection.to.nodeId);
+
+  if (toNode?.type === "switcher" && connection.to.portId.startsWith("input-")) {
+    const input = Number(connection.to.portId.replace("input-", ""));
+    const marker = Number.isInteger(input) ? getSwitcherInputAudioMarker(toNode, input) : null;
+    return marker ? [marker] : [];
+  }
+
+  if (toNode?.type === "switcher" && connection.to.portId.startsWith("mic-in-")) {
+    const input = Number(connection.to.portId.replace("mic-in-", ""));
+    const marker = Number.isInteger(input) ? getSwitcherMicAudioMarker(toNode, input) : null;
+    return marker ? [marker] : [];
+  }
+
+  if (fromNode?.type === "switcher" && isSwitcherAudioOutput(connection.from.portId)) {
+    return getSwitcherAudioMixMarkers(fromNode);
+  }
+
+  return [];
+}
+
+function isSwitcherAudioOutput(portId) {
+  return portId === "program-out"
+    || portId === "multiview-out"
+    || portId.startsWith("usb-out-")
+    || portId === "headphone-out";
 }
 
 function getConnectionClass(connection) {
@@ -1879,7 +2064,9 @@ function selectPreview(switcherId, input) {
     const source = normalizeSwitcherBusSource(input);
 
     if (getSwitcherBusMode(switcher) === "cutBus") {
+      const previousProgram = switcher.programInput;
       switcher.programInput = source;
+      beginAudioFadeForProgramChange(switcher, previousProgram, source);
     } else {
       switcher.previewInput = source;
     }
@@ -1980,6 +2167,7 @@ function cut(switcherId) {
     const previousProgram = switcher.programInput;
     switcher.programInput = switcher.previewInput;
     switcher.previewInput = previousProgram ?? switcher.previewInput;
+    beginAudioFadeForProgramChange(switcher, previousProgram, switcher.programInput);
     switcher.cutFlashing = true;
     render();
 
@@ -2016,6 +2204,7 @@ function auto(switcherId) {
   window.setTimeout(() => {
     switcher.programInput = nextProgram;
     switcher.previewInput = previousProgram ?? switcher.previewInput;
+    beginAudioFadeForProgramChange(switcher, previousProgram, nextProgram);
     switcher.isTransitioning = false;
     switcher.transition = null;
     state.activeTransition = null;
