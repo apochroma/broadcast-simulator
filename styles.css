@@ -1729,6 +1729,330 @@ body.is-read-only #openGearLibrary {
   width: 100%;
 }
 
+.atem-mini-panel {
+  --mini-small-button-width: 54px;
+  --mini-small-button-gap: 8px;
+  --mini-big-button-width: calc(var(--mini-small-button-width) * 2 + var(--mini-small-button-gap));
+  padding: 16px 18px 18px;
+}
+
+.atem-mini-panel .atem-panel-label {
+  margin-bottom: 14px;
+  font-size: 0.95rem;
+}
+
+.atem-mini-grid {
+  display: grid;
+  grid-template-columns: 500px var(--mini-small-button-width) 620px;
+  gap: 16px;
+  align-items: start;
+}
+
+.atem-mini-raster {
+  display: grid;
+  grid-template-columns: repeat(8, var(--mini-big-button-width));
+  grid-template-rows: 82px 100px 68px;
+  gap: 12px 20px;
+  align-items: start;
+}
+
+.atem-mini-raster .mini-col-1 {
+  grid-column: 1;
+}
+
+.atem-mini-raster .mini-col-2 {
+  grid-column: 2;
+}
+
+.atem-mini-raster .mini-col-3 {
+  grid-column: 3;
+}
+
+.atem-mini-raster .mini-col-4 {
+  grid-column: 4;
+}
+
+.atem-mini-raster .mini-col-5 {
+  grid-column: 5;
+}
+
+.atem-mini-raster .mini-col-6 {
+  grid-column: 6;
+}
+
+.atem-mini-raster .mini-col-7 {
+  grid-column: 7;
+}
+
+.atem-mini-raster .mini-col-8 {
+  grid-column: 8;
+}
+
+.atem-mini-raster .mini-top-slot {
+  grid-row: 1;
+}
+
+.atem-mini-raster .mini-source-slot {
+  grid-row: 2 / 4;
+}
+
+.atem-mini-raster .mini-still-slot {
+  grid-row: 3;
+  align-self: stretch;
+}
+
+.atem-mini-raster .mini-pip-control {
+  grid-column: 5 / span 2;
+  grid-row: 1;
+  justify-self: end;
+  width: calc(var(--mini-small-button-width) * 3 + var(--mini-small-button-gap) * 2);
+  z-index: 1;
+}
+
+.atem-mini-raster .mini-duration-control {
+  grid-column: 6;
+  grid-row: 2;
+  padding-top: 28px;
+}
+
+.atem-mini-raster .mini-key-control {
+  grid-column: 7;
+  grid-row: 1;
+  justify-self: end;
+  width: var(--mini-small-button-width);
+  z-index: 2;
+}
+
+.atem-mini-raster .mini-effect-control {
+  grid-column: 7;
+  grid-row: 2;
+}
+
+.atem-mini-raster .mini-record-stream-bank {
+  display: grid;
+  grid-column: 8;
+  grid-row: 1;
+  grid-template-columns: repeat(2, var(--mini-small-button-width));
+  gap: var(--mini-small-button-gap);
+  justify-self: start;
+  width: var(--mini-big-button-width);
+  z-index: 2;
+}
+
+.atem-mini-raster .mini-record-stream-bank .status-column:first-child {
+  grid-column: 1;
+}
+
+.atem-mini-raster .mini-record-stream-bank .status-column:last-child {
+  grid-column: 2;
+}
+
+.atem-mini-raster .mini-video-out-control {
+  grid-column: 8;
+  grid-row: 2;
+}
+
+.atem-mini-raster .mini-duration-control,
+.atem-mini-raster .mini-effect-control,
+.atem-mini-raster .mini-video-out-control {
+  align-self: end;
+}
+
+.atem-mini-raster > .switcher-action {
+  grid-row: 3;
+  width: 100%;
+}
+
+.atem-mini-left-bank {
+  display: grid;
+  grid-template-rows: auto 180px;
+  gap: 12px;
+  min-width: 0;
+}
+
+.atem-mini-top-row,
+.atem-mini-source-columns {
+  display: grid;
+  gap: 12px;
+}
+
+.atem-mini-top-row {
+  grid-template-columns: repeat(4, calc(var(--mini-small-button-width) * 2 + var(--mini-small-button-gap)));
+  align-items: start;
+}
+
+.atem-mini-source-column {
+  display: grid;
+  grid-template-rows: 100px 68px;
+  gap: 12px;
+  min-width: 0;
+}
+
+.atem-mini-still-bank {
+  display: grid;
+  grid-template-rows: auto 180px;
+  gap: 12px;
+  padding-top: 88px;
+  min-width: 0;
+  width: var(--mini-small-button-width);
+}
+
+.atem-mini-still-buttons {
+  display: grid;
+  gap: var(--mini-small-button-gap);
+  align-self: end;
+}
+
+.atem-mini-right-bank {
+  display: grid;
+  grid-template-rows: 180px 68px;
+  gap: 12px;
+  align-self: start;
+  min-width: 0;
+}
+
+.atem-mini-right-controls {
+  display: grid;
+  grid-template-columns:
+    calc(var(--mini-small-button-width) * 3 + var(--mini-small-button-gap) * 2)
+    calc(var(--mini-small-button-width) * 2 + var(--mini-small-button-gap))
+    calc(var(--mini-small-button-width) * 2 + var(--mini-small-button-gap))
+    calc(var(--mini-small-button-width) * 3 + var(--mini-small-button-gap) * 2);
+  grid-template-rows: 64px 104px;
+  grid-template-areas:
+    "pip . key status"
+    "pip duration effect video";
+  gap: 10px;
+  align-items: start;
+}
+
+.atem-mini-right-controls .mini-pip-control {
+  grid-area: pip;
+}
+
+.atem-mini-right-controls .mini-key-control {
+  grid-area: key;
+}
+
+.atem-mini-right-controls .mini-record-stream-bank {
+  grid-area: status;
+  display: grid;
+  grid-template-columns: repeat(2, var(--mini-small-button-width));
+  gap: var(--mini-small-button-gap);
+  width: auto;
+  justify-self: end;
+}
+
+.atem-mini-panel .mini-pip-buttons {
+  grid-template-columns: repeat(3, var(--mini-small-button-width));
+}
+
+.atem-mini-right-controls .mini-duration-control {
+  grid-area: duration;
+}
+
+.atem-mini-right-controls .mini-effect-control {
+  grid-area: effect;
+}
+
+.atem-mini-right-controls .mini-status-bank {
+  grid-area: status;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  width: auto;
+  justify-self: stretch;
+}
+
+.atem-mini-right-controls .mini-video-out-control {
+  grid-area: video;
+}
+
+.atem-mini-panel .panel-button {
+  width: var(--mini-small-button-width);
+  height: 28px;
+  min-width: 0;
+  padding: 0 4px;
+  border-radius: 6px;
+  font-size: 0.52rem;
+}
+
+.atem-mini-panel .top-device-buttons,
+.atem-mini-panel .atem-source-control-grid,
+.atem-mini-panel .right-group-buttons {
+  grid-template-columns: repeat(2, var(--mini-small-button-width));
+  gap: var(--mini-small-button-gap);
+  align-content: start;
+}
+
+.atem-mini-panel .right-group-buttons.mini-pip-buttons {
+  grid-template-columns: repeat(3, var(--mini-small-button-width));
+}
+
+.atem-mini-panel .top-device-control {
+  gap: 5px;
+}
+
+.atem-mini-panel .top-device-control strong,
+.atem-mini-panel .right-control-group strong {
+  font-size: 0.48rem;
+}
+
+.atem-mini-panel .source-button,
+.atem-mini-panel .switcher-action {
+  height: 68px;
+}
+
+.atem-mini-panel .source-button {
+  width: calc(var(--mini-small-button-width) * 2 + var(--mini-small-button-gap));
+  border-radius: 12px;
+  font-size: 1.45rem;
+}
+
+.atem-mini-panel .switcher-actions {
+  gap: 10px;
+}
+
+.atem-mini-panel .mini-switcher-actions {
+  grid-template-columns:
+    calc(var(--mini-small-button-width) * 3 + var(--mini-small-button-gap) * 2)
+    calc(var(--mini-small-button-width) * 2 + var(--mini-small-button-gap))
+    calc(var(--mini-small-button-width) * 2 + var(--mini-small-button-gap))
+    calc(var(--mini-small-button-width) * 3 + var(--mini-small-button-gap) * 2);
+}
+
+.atem-mini-panel .switcher-action {
+  width: 100%;
+  border-radius: 8px;
+}
+
+.atem-mini-panel .panel-button.source-extra {
+  height: 30px;
+  font-size: 0.56rem;
+}
+
+.atem-mini-panel .status-column {
+  grid-template-columns: var(--mini-small-button-width);
+  gap: var(--mini-small-button-gap);
+}
+
+.atem-mini-panel .status-control .top-device-buttons {
+  grid-template-columns: var(--mini-small-button-width);
+}
+
+.atem-mini-raster .mini-key-control .top-device-control,
+.atem-mini-raster .mini-key-control .top-device-buttons,
+.atem-mini-raster .mini-record-stream-bank .status-column,
+.atem-mini-raster .mini-record-stream-bank .top-device-control,
+.atem-mini-raster .mini-record-stream-bank .top-device-buttons {
+  width: var(--mini-small-button-width);
+}
+
+.atem-mini-panel .status-control .panel-button {
+  padding: 0 3px;
+  font-size: 0.48rem;
+}
+
 .atem-source-top-controls {
   display: grid;
   align-content: end;

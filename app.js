@@ -125,7 +125,7 @@ function makeAtemMiniTemplate(title, inputCount, hdmiOutputs, usbOutputs, hasHea
     hdmiOutputs,
     usbOutputs,
     hasHeadphones,
-    width: inputCount > 4 ? 1894 : 700
+    width: inputCount > 4 ? 1894 : 1140
   });
 
   if (inputCount > 4) {
@@ -633,6 +633,10 @@ function renderSockets(node, direction) {
 function renderSwitcherPanel(switcher) {
   ensureSwitcherAudioState(switcher);
 
+  if (isAtemMiniProPanel(switcher)) {
+    return renderMiniSwitcherPanel(switcher);
+  }
+
   return `
     <div class="atem-control-panel">
       <div class="atem-panel-label">ATEM Mini Extreme</div>
@@ -662,6 +666,159 @@ function renderSwitcherPanel(switcher) {
           </div>
         </section>
       </div>
+    </div>
+  `;
+}
+
+function isAtemMiniProPanel(switcher) {
+  return switcher.inputCount <= 4 && String(switcher.title ?? "").includes("ATEM Mini");
+}
+
+function renderMiniSwitcherPanel(switcher) {
+  return `
+    <div class="atem-control-panel atem-mini-panel">
+      <div class="atem-panel-label">${switcher.title}</div>
+      <div class="atem-mini-raster">
+        <div class="mini-top-slot mini-col-1">${renderMicControl(switcher, "mic1", "MIC 1")}</div>
+        <div class="mini-top-slot mini-col-2">${renderMicControl(switcher, "mic2", "MIC 2")}</div>
+
+        ${Array.from({ length: switcher.inputCount }, (_, index) => `
+          <section class="mini-source-slot mini-col-${index + 1}" aria-label="Source ${index + 1}">
+            ${renderMiniSourceColumn(switcher, index + 1)}
+          </section>
+        `).join("")}
+
+        <section class="mini-still-slot mini-col-5" aria-label="Still und Black">
+          <div class="atem-mini-still-buttons">
+            ${renderMediaSourceButton(switcher, { id: "mp1", label: "STILL" })}
+            ${renderMediaSourceButton(switcher, { id: "black", label: "BLACK" })}
+          </div>
+        </section>
+
+        <section class="right-control-group mini-pip-control" aria-label="Picture in Picture">
+          <div class="right-group-buttons mini-pip-buttons">
+            ${renderPipPresetButton(switcher, pipPresets[0])}
+            ${renderPipPresetButton(switcher, pipPresets[1])}
+            ${renderPipPowerButton(switcher, "ON", true)}
+            ${renderPipPresetButton(switcher, pipPresets[2])}
+            ${renderPipPresetButton(switcher, pipPresets[3])}
+            ${renderPipPowerButton(switcher, "OFF", false)}
+          </div>
+          <strong>PICTURE IN PICTURE</strong>
+        </section>
+
+        <section class="right-control-group mini-duration-control" aria-label="Duration">
+          <div class="right-group-buttons two-col">
+            ${[0.5, 1, 1.5, 2].map((duration) => renderDurationButton(switcher, duration)).join("")}
+          </div>
+          <strong>DURATION</strong>
+        </section>
+
+        <section class="right-control-group mini-key-control" aria-label="Key">
+          ${renderStatusControl(switcher, "KEY", ["ON", "OFF"])}
+        </section>
+
+        <section class="right-control-group mini-effect-control" aria-label="Effect">
+          <div class="right-group-buttons two-col">
+            ${["◧", "▬", "◀", "▶", "MIX", "DIP"].map((label) => renderPanelButton(label)).join("")}
+          </div>
+          <strong>EFFECT</strong>
+        </section>
+
+        <section class="atem-status-bank mini-record-stream-bank" aria-label="Record und Stream">
+          <div class="status-column">
+            ${renderStatusControl(switcher, "RECORD", ["REC", "STOP"])}
+          </div>
+          <div class="status-column">
+            ${renderStatusControl(switcher, "STREAM", ["ON AIR", "OFF"])}
+          </div>
+        </section>
+
+        <section class="right-control-group mini-video-out-control" aria-label="Video Out">
+          <div class="right-group-buttons two-col">
+            ${[1, 2, 3, 4].map((input) => renderVideoOutButton(switcher, String(input), "input", input)).join("")}
+            ${renderVideoOutButton(switcher, "M/V", "multiview")}
+            ${renderVideoOutButton(switcher, "PGM", "program")}
+          </div>
+          <strong>VIDEO OUT</strong>
+        </section>
+
+        <button class="switcher-action cut mini-col-6" type="button" data-action="cut" data-node-id="${switcher.id}">CUT</button>
+        <button class="switcher-action auto mini-col-7" type="button" data-action="auto" data-node-id="${switcher.id}">AUTO</button>
+        <button class="switcher-action ftb mini-col-8" type="button" data-action="ftb" data-node-id="${switcher.id}">FTB</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderMiniSourceColumn(switcher, input) {
+  const mode = switcher.audio?.sources?.[input] ?? "off";
+
+  return `
+    <div class="atem-mini-source-column">
+      <div class="atem-source-control-grid">
+        ${renderAudioButton(switcher, input, "afv", "AFV", mode)}
+        ${renderAudioButton(switcher, input, "reset", "RESET", mode)}
+        ${renderAudioButton(switcher, input, "on", "ON", mode)}
+        ${renderAudioButton(switcher, input, "off", "OFF", mode)}
+        ${renderFaderAdjustButton(switcher, input, "up", "▲")}
+        ${renderFaderAdjustButton(switcher, input, "down", "▼")}
+      </div>
+      ${renderSourceButton(switcher, input)}
+    </div>
+  `;
+}
+
+function renderMiniRightControlPanel(switcher) {
+  return `
+    <div class="atem-mini-right-controls">
+      <section class="right-control-group mini-pip-control" aria-label="Picture in Picture">
+        <div class="right-group-buttons mini-pip-buttons">
+          ${renderPipPresetButton(switcher, pipPresets[0])}
+          ${renderPipPresetButton(switcher, pipPresets[1])}
+          ${renderPipPowerButton(switcher, "ON", true)}
+          ${renderPipPresetButton(switcher, pipPresets[2])}
+          ${renderPipPresetButton(switcher, pipPresets[3])}
+          ${renderPipPowerButton(switcher, "OFF", false)}
+        </div>
+        <strong>PICTURE IN PICTURE</strong>
+      </section>
+
+      <section class="right-control-group mini-key-control" aria-label="Key">
+        ${renderStatusControl(switcher, "KEY 1", ["ON", "OFF"])}
+      </section>
+
+      <section class="atem-status-bank mini-record-stream-bank" aria-label="Record und Stream">
+        <div class="status-column">
+          ${renderStatusControl(switcher, "RECORD", ["REC", "STOP"])}
+        </div>
+        <div class="status-column">
+          ${renderStatusControl(switcher, "STREAM", ["ON AIR", "OFF"])}
+        </div>
+      </section>
+
+      <section class="right-control-group mini-duration-control" aria-label="Duration">
+        <div class="right-group-buttons two-col">
+          ${[0.5, 1, 1.5, 2].map((duration) => renderDurationButton(switcher, duration)).join("")}
+        </div>
+        <strong>DURATION</strong>
+      </section>
+
+      <section class="right-control-group mini-effect-control" aria-label="Effect">
+        <div class="right-group-buttons two-col">
+          ${["◧", "▬", "◀", "▶", "MIX", "DIP"].map((label) => renderPanelButton(label)).join("")}
+        </div>
+        <strong>EFFECT</strong>
+      </section>
+
+      <section class="right-control-group mini-video-out-control" aria-label="Video Out">
+        <div class="right-group-buttons two-col">
+          ${[1, 2, 3, 4].map((input) => renderVideoOutButton(switcher, String(input), "input", input)).join("")}
+          ${renderVideoOutButton(switcher, "M/V", "multiview")}
+          ${renderVideoOutButton(switcher, "PGM", "program")}
+        </div>
+        <strong>VIDEO OUT</strong>
+      </section>
     </div>
   `;
 }
