@@ -46,7 +46,8 @@ const gearLibrary = {
     outputs: [
       { id: "hdmi-out", label: "HDMI Out", signal: "HDMI", top: 44 },
       { id: "usb-c-out", label: "USB-C Out", signal: "USB-C", top: 58 },
-      { id: "rj45", label: "RJ45", signal: "RJ45", top: 72 }
+      { id: "rj45", label: "RJ45", signal: "RJ45", top: 72 },
+      { id: "line-out", label: "Line Out", signal: "Mic 3.5mm", top: 86 }
     ]
   },
   hdmiSplitter: {
@@ -252,7 +253,7 @@ const gearEntries = [
   ["atemMiniExtremeIso", "Blackmagic ATEM Mini", "ATEM Mini Extreme ISO", "8 HDMI Inputs, 2x HDMI Out, 2x USB-C, Phones"],
   ["atemSdiProIso", "Blackmagic ATEM SDI", "ATEM SDI Pro ISO", "4 SDI Inputs, SDI Out, USB-C, 2x Mic"],
   ["atemSdiExtremeIso", "Blackmagic ATEM SDI", "ATEM SDI Extreme ISO", "8 SDI Inputs, 2x SDI Out, 2x USB-C, Phones"],
-  ["computer", "Playback", "Computer / Playback", "HDMI, USB-C und RJ45 Output mit Datei-Preview"],
+  ["computer", "Playback", "Computer / Playback", "HDMI, USB-C, RJ45 und 3.5mm Line-Out mit Datei-Preview"],
   ["hdmiSplitter", "Distribution", "HDMI Splitter 1x5", "1 HDMI Input, 5 HDMI Outputs"],
   ["monitor", "Monitoring", "Program Monitor", "SDI oder HDMI Input"]
 ];
@@ -494,10 +495,25 @@ function ensureSourceIdentity(node) {
     return;
   }
 
+  ensureComputerLineOut(node);
   const look = getSourceLook(String(node.id ?? "").split("-").pop() ?? 0);
   node.sourceColor ??= look.color;
   node.pattern ??= look.pattern;
   node.viewMode = normalizeSourceViewMode(node);
+}
+
+function ensureComputerLineOut(node) {
+  if (node?.type !== "computer") {
+    return;
+  }
+
+  node.outputs ??= [];
+
+  if (node.outputs.some((port) => port.id === "line-out")) {
+    return;
+  }
+
+  node.outputs.push({ id: "line-out", label: "Line Out", signal: "Mic 3.5mm", top: 86 });
 }
 
 function getDefaultSourceViewMode(type) {
@@ -712,7 +728,7 @@ function renderSwitcherTopRow(switcher) {
         <div class="atem-top-source-columns" style="grid-template-columns: repeat(${switcher.inputCount}, minmax(0, 1fr)) 122px">
           ${renderMicControl(switcher, "mic1", "MIC 1")}
           ${renderMicControl(switcher, "mic2", "MIC 2")}
-          ${renderHeadphoneControl()}
+          ${renderHeadphoneControl(switcher)}
           <div class="select-bus-core">
             <div class="select-bus-buttons">
               ${[
@@ -774,9 +790,10 @@ function renderSourceTopControls(switcher, input) {
   `;
 }
 
-function renderAudioGainControl(switcher, input) {
-  const gain = getSwitcherInputGain(switcher, input);
+function renderAudioGainControl(switcher, input, kind = "source") {
+  const gain = kind === "mic" ? getSwitcherMicGain(switcher, input) : getSwitcherInputGain(switcher, input);
   const angle = -135 + ((gain + 20) / 40) * 270;
+  const label = kind === "mic" ? getMicLabel(input) : getSwitcherBusSourceLabel(input);
 
   return `
     <button class="audio-gain-control"
@@ -784,7 +801,9 @@ function renderAudioGainControl(switcher, input) {
       data-action="adjust-input-gain"
       data-node-id="${switcher.id}"
       data-input="${input}"
-      aria-label="Gain ${getSwitcherBusSourceLabel(input)} ${formatSignedValue(gain)} dB">
+      data-audio-kind="${kind}"
+      data-audio-input="${input}"
+      aria-label="Gain ${label} ${formatSignedValue(gain)} dB">
       <span class="mini-knob" style="--knob-angle: ${angle}deg"></span>
       <strong>${formatSignedDb(gain)}</strong>
     </button>
@@ -798,6 +817,7 @@ function renderFaderAdjustButton(switcher, input, direction, label) {
       data-action="adjust-audio-fader"
       data-node-id="${switcher.id}"
       data-input="${input}"
+      data-audio-kind="source"
       data-audio-input="${input}"
       data-direction="${direction}">
       ${label}
@@ -814,6 +834,7 @@ function renderAudioButton(switcher, input, mode, label, activeMode) {
       data-action="set-audio-source"
       data-node-id="${switcher.id}"
       data-input="${input}"
+      data-audio-kind="source"
       data-audio-input="${input}"
       data-mode="${mode}"
       aria-pressed="${isActive}">
@@ -833,6 +854,8 @@ function renderMicControl(switcher, micId, label) {
           data-action="set-mic-audio"
           data-node-id="${switcher.id}"
           data-mic="${micId}"
+          data-audio-kind="mic"
+          data-audio-input="${micId}"
           data-mode="on"
           aria-pressed="${mode === "on"}">ON</button>
         <button class="panel-button audio-button"
@@ -840,21 +863,67 @@ function renderMicControl(switcher, micId, label) {
           data-action="set-mic-audio"
           data-node-id="${switcher.id}"
           data-mic="${micId}"
+          data-audio-kind="mic"
+          data-audio-input="${micId}"
           data-mode="off"
           aria-pressed="false">OFF</button>
-        ${renderPanelButton("▲")}
-        ${renderPanelButton("▼")}
+        <button class="panel-button fader-button"
+          type="button"
+          data-action="adjust-mic-fader"
+          data-node-id="${switcher.id}"
+          data-mic="${micId}"
+          data-audio-kind="mic"
+          data-audio-input="${micId}"
+          data-direction="up">▲</button>
+        <button class="panel-button fader-button"
+          type="button"
+          data-action="adjust-mic-fader"
+          data-node-id="${switcher.id}"
+          data-mic="${micId}"
+          data-audio-kind="mic"
+          data-audio-input="${micId}"
+          data-direction="down">▼</button>
       </div>
       <strong>${label}</strong>
     </div>
   `;
 }
 
-function renderHeadphoneControl() {
+function renderHeadphoneControl(switcher) {
+  const muted = switcher.audio?.headphone?.muted === true;
+
   return `
     <div class="top-device-control">
       <div class="top-device-buttons">
-        ${["MUTE", "RESET", "▲", "▼"].map((label) => renderPanelButton(label)).join("")}
+        <button class="panel-button audio-button ${muted ? "is-active" : ""}"
+          type="button"
+          data-action="set-headphone-audio"
+          data-node-id="${switcher.id}"
+          data-audio-kind="headphone"
+          data-audio-input="headphone"
+          data-mode="mute"
+          aria-pressed="${muted}">MUTE</button>
+        <button class="panel-button audio-button"
+          type="button"
+          data-action="set-headphone-audio"
+          data-node-id="${switcher.id}"
+          data-audio-kind="headphone"
+          data-audio-input="headphone"
+          data-mode="reset">RESET</button>
+        <button class="panel-button fader-button"
+          type="button"
+          data-action="adjust-headphone-fader"
+          data-node-id="${switcher.id}"
+          data-audio-kind="headphone"
+          data-audio-input="headphone"
+          data-direction="up">▲</button>
+        <button class="panel-button fader-button"
+          type="button"
+          data-action="adjust-headphone-fader"
+          data-node-id="${switcher.id}"
+          data-audio-kind="headphone"
+          data-audio-input="headphone"
+          data-direction="down">▼</button>
       </div>
       <strong>HEADPHONE</strong>
     </div>
@@ -998,6 +1067,18 @@ function createSwitcherAudioState(inputCount = 0) {
     mics: {
       mic1: "off",
       mic2: "off"
+    },
+    micFaders: {
+      mic1: createAudioChannelFaderState(),
+      mic2: createAudioChannelFaderState()
+    },
+    micGains: {
+      mic1: 0,
+      mic2: 0
+    },
+    headphone: {
+      muted: false,
+      fader: 0
     }
   };
 }
@@ -1025,6 +1106,9 @@ function ensureSwitcherAudioState(switcher) {
   switcher.audio.channelFaders ??= {};
   switcher.audio.gains ??= {};
   switcher.audio.mics ??= {};
+  switcher.audio.micFaders ??= {};
+  switcher.audio.micGains ??= {};
+  switcher.audio.headphone ??= {};
 
   Array.from({ length: switcher.inputCount }, (_, index) => index + 1).forEach((input) => {
     switcher.audio.sources[input] ??= "off";
@@ -1034,6 +1118,12 @@ function ensureSwitcherAudioState(switcher) {
   });
   switcher.audio.mics.mic1 ??= "off";
   switcher.audio.mics.mic2 ??= "off";
+  switcher.audio.micFaders.mic1 = normalizeAudioChannelFaderState(switcher.audio.micFaders.mic1, 0);
+  switcher.audio.micFaders.mic2 = normalizeAudioChannelFaderState(switcher.audio.micFaders.mic2, 0);
+  switcher.audio.micGains.mic1 ??= 0;
+  switcher.audio.micGains.mic2 ??= 0;
+  switcher.audio.headphone.muted ??= false;
+  switcher.audio.headphone.fader = clamp(Math.round(Number(switcher.audio.headphone.fader ?? 0) * 10) / 10, -60, 6);
 }
 
 function normalizeAudioChannelFaderState(channelFader, fallback = 0) {
@@ -1113,8 +1203,16 @@ function setSwitcherInputChannelFader(switcherId, input, channel, value) {
   }
 
   ensureSwitcherAudioState(switcher);
-  const nextValue = clamp(Math.round(Number(value) * 10) / 10, -60, 6);
   const channelFader = getSwitcherInputChannelFaders(switcher, input);
+  updateChannelFaderState(channelFader, channel, value);
+
+  switcher.audio.faders[input] = Math.round(((channelFader.left + channelFader.right) / 2) * 10) / 10;
+  showAudioMeter(switcherId, input, { autoHide: false });
+  renderAudioMeterPopover();
+}
+
+function updateChannelFaderState(channelFader, channel, value) {
+  const nextValue = clamp(Math.round(Number(value) * 10) / 10, -60, 6);
 
   if (channelFader.locked) {
     const activeChannel = channel === "right" ? "right" : "left";
@@ -1127,10 +1225,6 @@ function setSwitcherInputChannelFader(switcherId, input, channel, value) {
   } else {
     channelFader[channel === "right" ? "right" : "left"] = nextValue;
   }
-
-  switcher.audio.faders[input] = Math.round(((channelFader.left + channelFader.right) / 2) * 10) / 10;
-  showAudioMeter(switcherId, input, { autoHide: false });
-  renderAudioMeterPopover();
 }
 
 function toggleSwitcherInputFaderLock(switcherId, input) {
@@ -1149,6 +1243,21 @@ function toggleSwitcherInputFaderLock(switcherId, input) {
   renderAudioMeterPopover();
 }
 
+function toggleSwitcherMicFaderLock(switcherId, micId) {
+  const switcher = getNode(switcherId);
+
+  if (switcher?.type !== "switcher") {
+    return;
+  }
+
+  ensureSwitcherAudioState(switcher);
+  const channelFader = getSwitcherMicFaders(switcher, micId);
+  channelFader.locked = !channelFader.locked;
+
+  showAudioMeter(switcherId, micId, { kind: "mic", autoHide: false });
+  renderAudioMeterPopover();
+}
+
 function adjustAudioFader(switcherId, input, direction) {
   const switcher = getNode(switcherId);
 
@@ -1159,6 +1268,37 @@ function adjustAudioFader(switcherId, input, direction) {
   const delta = direction === "up" ? 0.1 : -0.1;
   setSwitcherInputFader(switcher, input, getSwitcherInputFader(switcher, input) + delta);
   showAudioMeter(switcherId, input, { autoHide: true });
+  render();
+}
+
+function adjustMicAudioFader(switcherId, micId, direction) {
+  const switcher = getNode(switcherId);
+
+  if (switcher?.type !== "switcher") {
+    return;
+  }
+
+  const delta = direction === "up" ? 0.1 : -0.1;
+  const channelFader = getSwitcherMicFaders(switcher, micId);
+  const minDelta = -60 - Math.min(channelFader.left, channelFader.right);
+  const maxDelta = 6 - Math.max(channelFader.left, channelFader.right);
+  const safeDelta = clamp(delta, minDelta, maxDelta);
+  channelFader.left = Math.round((channelFader.left + safeDelta) * 10) / 10;
+  channelFader.right = Math.round((channelFader.right + safeDelta) * 10) / 10;
+  showAudioMeter(switcherId, micId, { kind: "mic", autoHide: true });
+  render();
+}
+
+function adjustHeadphoneFader(switcherId, direction) {
+  const switcher = getNode(switcherId);
+
+  if (switcher?.type !== "switcher") {
+    return;
+  }
+
+  const delta = direction === "up" ? 0.1 : -0.1;
+  setSwitcherHeadphoneFader(switcherId, getSwitcherHeadphoneFader(switcher) + delta);
+  showAudioMeter(switcherId, "headphone", { kind: "headphone", autoHide: true });
   render();
 }
 
@@ -1186,6 +1326,30 @@ function startFaderHold(button) {
   }, GAIN_HOLD_DELAY_MS);
 }
 
+function startMicFaderHold(button) {
+  stopFaderHold();
+
+  gainHoldTimer = window.setTimeout(() => {
+    suppressNextGainClick = true;
+    adjustMicAudioFader(button.dataset.nodeId, button.dataset.mic, button.dataset.direction);
+    gainHoldInterval = window.setInterval(() => {
+      adjustMicAudioFader(button.dataset.nodeId, button.dataset.mic, button.dataset.direction);
+    }, GAIN_HOLD_INTERVAL_MS);
+  }, GAIN_HOLD_DELAY_MS);
+}
+
+function startHeadphoneFaderHold(button) {
+  stopFaderHold();
+
+  gainHoldTimer = window.setTimeout(() => {
+    suppressNextGainClick = true;
+    adjustHeadphoneFader(button.dataset.nodeId, button.dataset.direction);
+    gainHoldInterval = window.setInterval(() => {
+      adjustHeadphoneFader(button.dataset.nodeId, button.dataset.direction);
+    }, GAIN_HOLD_INTERVAL_MS);
+  }, GAIN_HOLD_DELAY_MS);
+}
+
 function stopFaderHold() {
   window.clearTimeout(gainHoldTimer);
   window.clearInterval(gainHoldInterval);
@@ -1198,6 +1362,11 @@ function getSwitcherMicAudioMode(switcher, micId) {
   return switcher.audio.mics[micId] ?? "off";
 }
 
+function getSwitcherMicSource(switcher, micId) {
+  const micNumber = micId === "mic2" ? 2 : 1;
+  return resolveNodeInputSource(switcher, `mic-in-${micNumber}`);
+}
+
 function showAudioMeter(switcherId, input, options = {}) {
   const switcher = getNode(switcherId);
 
@@ -1207,7 +1376,8 @@ function showAudioMeter(switcherId, input, options = {}) {
 
   state.activeAudioMeter = {
     switcherId,
-    input: Number(input)
+    kind: options.kind ?? "source",
+    input: options.kind === "source" || options.kind === undefined ? Number(input) : input
   };
 
   window.clearTimeout(audioMeterTimer);
@@ -1219,27 +1389,29 @@ function showAudioMeter(switcherId, input, options = {}) {
   }
 }
 
-function showAudioMeterFromHover(switcherId, input) {
+function showAudioMeterFromHover(switcherId, input, kind = "source") {
   const nextMeter = {
     switcherId,
-    input: Number(input)
+    kind,
+    input: kind === "source" ? Number(input) : input
   };
   const activeMeter = state.activeAudioMeter;
   const isSameMeter = activeMeter
     && activeMeter.switcherId === nextMeter.switcherId
-    && Number(activeMeter.input) === nextMeter.input;
+    && activeMeter.kind === nextMeter.kind
+    && String(activeMeter.input) === String(nextMeter.input);
 
   window.clearTimeout(audioMeterHoverTimer);
   window.clearTimeout(audioMeterSwitchTimer);
 
   if (!activeMeter || isSameMeter) {
-    showAudioMeter(nextMeter.switcherId, nextMeter.input, { autoHide: false });
+    showAudioMeter(nextMeter.switcherId, nextMeter.input, { kind, autoHide: false });
     renderAudioMeterPopover();
     return;
   }
 
   audioMeterSwitchTimer = window.setTimeout(() => {
-    showAudioMeter(nextMeter.switcherId, nextMeter.input, { autoHide: false });
+    showAudioMeter(nextMeter.switcherId, nextMeter.input, { kind, autoHide: false });
     renderAudioMeterPopover();
   }, AUDIO_METER_SWITCH_DELAY_MS);
 }
@@ -1274,17 +1446,52 @@ function renderAudioMeterPopover() {
   }
 
   ensureSwitcherAudioState(switcher);
-  const input = Number(meter.input);
-  const mode = getSwitcherInputAudioMode(switcher, input);
-  const source = getSwitcherInputSource(switcher, input);
-  const gain = getSwitcherInputGain(switcher, input);
-  const fader = getSwitcherInputFader(switcher, input);
-  const channelFaders = getSwitcherInputChannelFaders(switcher, input);
+  const kind = meter.kind ?? "source";
+
+  if (kind === "headphone") {
+    const muted = switcher.audio.headphone.muted === true;
+    const fader = getSwitcherHeadphoneFader(switcher);
+    const db = getAudioMeterDb("headphone", 0, fader, 0, !muted);
+
+    audioMeterPopover.classList.toggle("is-muted", muted);
+    audioMeterPopover.classList.remove("is-hidden");
+    audioMeterPopover.innerHTML = `
+      <div class="audio-meter-head">
+        <div>
+          <span>${switcher.title}</span>
+          <strong>HEADPHONE</strong>
+        </div>
+        <em>${muted ? "MUTE" : "ON"}</em>
+      </div>
+      <div class="audio-meter-body is-headphone">
+        ${renderHeadphoneMeterStrip(db, fader, switcher.id, muted)}
+        <div class="audio-meter-readout">
+          <span>FADER</span>
+          <strong>${formatSignedDb(fader)}</strong>
+          <small>${muted ? "Kopfhörer stummgeschaltet" : "Monitoring aktiv"}</small>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  const isMic = kind === "mic";
+  const input = isMic ? String(meter.input) : Number(meter.input);
+  const mode = isMic ? getSwitcherMicAudioMode(switcher, input) : getSwitcherInputAudioMode(switcher, input);
+  const source = isMic ? getSwitcherMicSource(switcher, input) : getSwitcherInputSource(switcher, input);
+  const gain = isMic ? getSwitcherMicGain(switcher, input) : getSwitcherInputGain(switcher, input);
+  const fader = isMic
+    ? Math.round(((getSwitcherMicFaders(switcher, input).left + getSwitcherMicFaders(switcher, input).right) / 2) * 10) / 10
+    : getSwitcherInputFader(switcher, input);
+  const channelFaders = isMic ? getSwitcherMicFaders(switcher, input) : getSwitcherInputChannelFaders(switcher, input);
   const hasSignal = Boolean(source);
-  const audible = Boolean(source) && isSwitcherInputAudioLive(switcher, input);
+  const audible = isMic
+    ? mode === "on" && !switcher.isFadeToBlackActive && !switcher.isFadingToBlack
+    : Boolean(source) && isSwitcherInputAudioLive(switcher, input);
   const leftDb = getAudioMeterDb(input, gain, channelFaders.left, 0, hasSignal);
   const rightDb = getAudioMeterDb(input, gain, channelFaders.right, 1, hasSignal);
   const status = getAudioMeterStatusLabel(mode, audible, source);
+  const title = isMic ? `${getMicLabel(input)} ${source ? source.shortName : "No Signal"}` : `${getSwitcherBusSourceLabel(input)} ${source ? source.shortName : "No Signal"}`;
 
   audioMeterPopover.classList.toggle("is-muted", !audible);
   audioMeterPopover.classList.remove("is-hidden");
@@ -1292,17 +1499,17 @@ function renderAudioMeterPopover() {
     <div class="audio-meter-head">
       <div>
         <span>${switcher.title}</span>
-        <strong>${getSwitcherBusSourceLabel(input)} ${source ? source.shortName : "No Signal"}</strong>
+        <strong>${title}</strong>
       </div>
       <em>${mode.toUpperCase()}</em>
     </div>
     <div class="audio-meter-body">
-      ${renderAudioMeterStrip("L", leftDb, mode, channelFaders.left, switcher.id, input)}
-      ${renderAudioFaderLockControl(switcher.id, input, channelFaders.locked)}
-      ${renderAudioMeterStrip("R", rightDb, mode, channelFaders.right, switcher.id, input)}
+      ${renderAudioMeterStrip("L", leftDb, mode, channelFaders.left, switcher.id, input, kind)}
+      ${renderAudioFaderLockControl(switcher.id, input, channelFaders.locked, kind)}
+      ${renderAudioMeterStrip("R", rightDb, mode, channelFaders.right, switcher.id, input, kind)}
       <div class="audio-meter-readout">
         <span>GAIN</span>
-        ${renderAudioGainControl(switcher, input)}
+        ${renderAudioGainControl(switcher, input, kind)}
         <span>FADER</span>
         <strong>${formatFaderReadout(channelFaders, fader)}</strong>
         <small>${status}</small>
@@ -1311,7 +1518,7 @@ function renderAudioMeterPopover() {
   `;
 }
 
-function renderAudioMeterStrip(label, db, mode, fader, switcherId, input) {
+function renderAudioMeterStrip(label, db, mode, fader, switcherId, input, kind = "source") {
   const level = getAudioMeterPercent(db);
   const levelRange = getAudioMeterDynamicRange(db);
   const channel = label === "R" ? "right" : "left";
@@ -1332,6 +1539,8 @@ function renderAudioMeterStrip(label, db, mode, fader, switcherId, input) {
           data-action="set-channel-fader"
           data-node-id="${switcherId}"
           data-input="${input}"
+          data-audio-kind="${kind}"
+          data-audio-input="${input}"
           data-channel="${channel}"
           aria-label="Fader ${label} ${formatSignedDb(fader)}">
           <span class="audio-channel-fader-track" aria-hidden="true"></span>
@@ -1354,11 +1563,55 @@ function renderAudioMeterStrip(label, db, mode, fader, switcherId, input) {
   `;
 }
 
+function renderHeadphoneMeterStrip(db, fader, switcherId, muted) {
+  const level = getAudioMeterPercent(db);
+  const levelRange = getAudioMeterDynamicRange(db);
+  const faderPercent = getAudioFaderPercent(fader);
+
+  return `
+    <div class="audio-meter-strip" style="--level: ${level}%; --level-low: ${levelRange.low}%; --level-high: ${levelRange.high}%">
+      <i class="audio-mode-bar ${muted ? "is-off" : "is-on"}"></i>
+      <strong>${formatMeterDb(db)}</strong>
+      <div class="audio-channel-strip">
+        <button class="audio-channel-fader"
+          type="button"
+          role="slider"
+          aria-valuemin="-60"
+          aria-valuemax="6"
+          aria-valuenow="${fader}"
+          style="--fader-pos: ${faderPercent}%"
+          data-action="set-channel-fader"
+          data-node-id="${switcherId}"
+          data-input="headphone"
+          data-audio-kind="headphone"
+          data-audio-input="headphone"
+          data-channel="headphone"
+          aria-label="Headphone Fader ${formatSignedDb(fader)}">
+          <span class="audio-channel-fader-track" aria-hidden="true"></span>
+          <span class="audio-channel-fader-thumb" aria-hidden="true"></span>
+        </button>
+        <div class="audio-meter-track">
+          <div class="audio-meter-scale" aria-hidden="true">
+            <span style="bottom: 100%">0</span>
+            <span style="bottom: 83.33%">-10</span>
+            <span style="bottom: 66.67%">-20</span>
+            <span style="bottom: 50%">-30</span>
+            <span style="bottom: 33.33%">-40</span>
+            <span style="bottom: 16.67%">-50</span>
+          </div>
+          <i></i>
+        </div>
+      </div>
+      <span>MON</span>
+    </div>
+  `;
+}
+
 function getAudioFaderPercent(fader) {
   return clamp(((Number(fader) + 60) / 66) * 100, 0, 100);
 }
 
-function renderAudioFaderLockControl(switcherId, input, locked) {
+function renderAudioFaderLockControl(switcherId, input, locked, kind = "source") {
   const icon = locked
     ? `
       <svg viewBox="0 0 40 40" aria-hidden="true">
@@ -1381,6 +1634,8 @@ function renderAudioFaderLockControl(switcherId, input, locked) {
       data-action="toggle-channel-fader-lock"
       data-node-id="${switcherId}"
       data-input="${input}"
+      data-audio-kind="${kind}"
+      data-audio-input="${input}"
       aria-pressed="${locked}"
       aria-label="${locked ? "Fader gekoppelt" : "Fader unabhängig"}">
       ${icon}
@@ -1413,7 +1668,10 @@ function getAudioMeterDb(input, gain, fader, channelOffset, hasSignal) {
     return -60;
   }
 
-  const base = -29 + ((Number(input) * 7 + channelOffset * 5) % 13);
+  const seed = typeof input === "number" && Number.isFinite(input)
+    ? input
+    : String(input).split("").reduce((total, char) => total + char.charCodeAt(0), 0);
+  const base = -29 + ((seed * 7 + channelOffset * 5) % 13);
   return clamp(base + gain + fader, -60, 0);
 }
 
@@ -1520,15 +1778,16 @@ function getSwitcherInputAudioMarker(switcher, input) {
 
 function getSwitcherMicAudioMarker(switcher, micIndex) {
   const micId = `mic${micIndex}`;
+  const source = getSwitcherMicSource(switcher, micId);
 
-  if (getSwitcherMicAudioMode(switcher, micId) !== "on") {
+  if (!source || getSwitcherMicAudioMode(switcher, micId) !== "on") {
     return null;
   }
 
   return {
     id: `${switcher.id}-${micId}`,
     label: `Mic ${micIndex}`,
-    color: getAudioMarkerColor(`mic-${micIndex}`)
+    color: getSourceAudioColor(source, `mic-${micIndex}`)
   };
 }
 
@@ -1637,7 +1896,90 @@ function setMicAudioMode(switcherId, micId, mode) {
 
   ensureSwitcherAudioState(switcher);
   switcher.audio.mics[micId] = mode;
+  showAudioMeter(switcherId, micId, { kind: "mic" });
   render();
+}
+
+function setHeadphoneAudioMode(switcherId, mode) {
+  const switcher = getNode(switcherId);
+
+  if (switcher?.type !== "switcher") {
+    return;
+  }
+
+  ensureSwitcherAudioState(switcher);
+  if (mode === "reset") {
+    switcher.audio.headphone.fader = 0;
+    switcher.audio.headphone.muted = false;
+  } else if (mode === "mute") {
+    switcher.audio.headphone.muted = !switcher.audio.headphone.muted;
+  }
+  showAudioMeter(switcherId, "headphone", { kind: "headphone" });
+  render();
+}
+
+function getSwitcherMicGain(switcher, micId) {
+  ensureSwitcherAudioState(switcher);
+  return Number(switcher.audio.micGains[micId] ?? 0);
+}
+
+function setSwitcherMicGain(switcher, micId, gain) {
+  ensureSwitcherAudioState(switcher);
+  switcher.audio.micGains[micId] = clamp(Math.round(Number(gain) * 10) / 10, -20, 20);
+}
+
+function getSwitcherMicFaders(switcher, micId) {
+  ensureSwitcherAudioState(switcher);
+  switcher.audio.micFaders[micId] = normalizeAudioChannelFaderState(switcher.audio.micFaders[micId], 0);
+  return switcher.audio.micFaders[micId];
+}
+
+function getMicLabel(micId) {
+  return micId === "mic2" ? "MIC 2" : "MIC 1";
+}
+
+function setSwitcherMicChannelFader(switcherId, micId, channel, value) {
+  const switcher = getNode(switcherId);
+
+  if (switcher?.type !== "switcher") {
+    return;
+  }
+
+  ensureSwitcherAudioState(switcher);
+  updateChannelFaderState(getSwitcherMicFaders(switcher, micId), channel, value);
+  showAudioMeter(switcherId, micId, { kind: "mic", autoHide: false });
+  renderAudioMeterPopover();
+}
+
+function getSwitcherHeadphoneFader(switcher) {
+  ensureSwitcherAudioState(switcher);
+  return Number(switcher.audio.headphone.fader ?? 0);
+}
+
+function setSwitcherHeadphoneFader(switcherId, value) {
+  const switcher = getNode(switcherId);
+
+  if (switcher?.type !== "switcher") {
+    return;
+  }
+
+  ensureSwitcherAudioState(switcher);
+  switcher.audio.headphone.fader = clamp(Math.round(Number(value) * 10) / 10, -60, 6);
+  showAudioMeter(switcherId, "headphone", { kind: "headphone", autoHide: false });
+  renderAudioMeterPopover();
+}
+
+function setSwitcherAudioGain(switcher, kind, input, gain) {
+  if (kind === "mic") {
+    setSwitcherMicGain(switcher, input, gain);
+    return;
+  }
+
+  setSwitcherInputGain(switcher, Number(input), gain);
+}
+
+function getSwitcherAudioGain(switcher, kind, input) {
+  return kind === "mic" ? getSwitcherMicGain(switcher, input) : getSwitcherInputGain(switcher, Number(input));
 }
 
 function renderSourceButton(switcher, input) {
@@ -2649,7 +2991,10 @@ function createNodeClipboardSnapshot(node) {
       faders: { ...(node.audio.faders ?? {}) },
       channelFaders: Object.fromEntries(Object.entries(node.audio.channelFaders ?? {}).map(([input, fader]) => [input, { ...fader }])),
       gains: { ...(node.audio.gains ?? {}) },
-      mics: { ...node.audio.mics }
+      mics: { ...node.audio.mics },
+      micFaders: Object.fromEntries(Object.entries(node.audio.micFaders ?? {}).map(([mic, fader]) => [mic, { ...fader }])),
+      micGains: { ...(node.audio.micGains ?? {}) },
+      headphone: { ...(node.audio.headphone ?? {}) }
     } : node.audio,
     cutFlashing: false,
     transition: null,
@@ -2675,7 +3020,10 @@ function createNodeFromClipboardSnapshot(snapshot) {
       faders: { ...(snapshot.audio.faders ?? {}) },
       channelFaders: Object.fromEntries(Object.entries(snapshot.audio.channelFaders ?? {}).map(([input, fader]) => [input, { ...fader }])),
       gains: { ...(snapshot.audio.gains ?? {}) },
-      mics: { ...snapshot.audio.mics }
+      mics: { ...snapshot.audio.mics },
+      micFaders: Object.fromEntries(Object.entries(snapshot.audio.micFaders ?? {}).map(([mic, fader]) => [mic, { ...fader }])),
+      micGains: { ...(snapshot.audio.micGains ?? {}) },
+      headphone: { ...(snapshot.audio.headphone ?? {}) }
     } : snapshot.audio,
     cutFlashing: false,
     transition: null,
@@ -3358,6 +3706,26 @@ deviceLayer.addEventListener("click", (event) => {
     setMicAudioMode(actionTarget.dataset.nodeId, actionTarget.dataset.mic, actionTarget.dataset.mode);
   }
 
+  if (action === "adjust-mic-fader") {
+    if (suppressNextGainClick) {
+      suppressNextGainClick = false;
+      return;
+    }
+    adjustMicAudioFader(actionTarget.dataset.nodeId, actionTarget.dataset.mic, actionTarget.dataset.direction);
+  }
+
+  if (action === "set-headphone-audio") {
+    setHeadphoneAudioMode(actionTarget.dataset.nodeId, actionTarget.dataset.mode);
+  }
+
+  if (action === "adjust-headphone-fader") {
+    if (suppressNextGainClick) {
+      suppressNextGainClick = false;
+      return;
+    }
+    adjustHeadphoneFader(actionTarget.dataset.nodeId, actionTarget.dataset.direction);
+  }
+
   if (action === "set-transition-duration") {
     setTransitionDuration(actionTarget.dataset.nodeId, actionTarget.dataset.duration);
   }
@@ -3418,7 +3786,11 @@ deviceLayer.addEventListener("pointerover", (event) => {
     return;
   }
 
-  showAudioMeterFromHover(audioTarget.dataset.nodeId, Number(audioTarget.dataset.audioInput));
+  showAudioMeterFromHover(
+    audioTarget.dataset.nodeId,
+    audioTarget.dataset.audioInput,
+    audioTarget.dataset.audioKind ?? "source"
+  );
 });
 
 deviceLayer.addEventListener("pointerout", (event) => {
@@ -3476,7 +3848,11 @@ audioMeterPopover?.addEventListener("click", (event) => {
   const lockButton = event.target.closest("[data-action='toggle-channel-fader-lock']");
 
   if (lockButton) {
-    toggleSwitcherInputFaderLock(lockButton.dataset.nodeId, Number(lockButton.dataset.input));
+    if (lockButton.dataset.audioKind === "mic") {
+      toggleSwitcherMicFaderLock(lockButton.dataset.nodeId, lockButton.dataset.audioInput);
+    } else {
+      toggleSwitcherInputFaderLock(lockButton.dataset.nodeId, Number(lockButton.dataset.input));
+    }
   }
 });
 
@@ -3536,6 +3912,20 @@ deviceLayer.addEventListener("pointerdown", (event) => {
 
   if (gainButton) {
     startFaderHold(gainButton);
+    return;
+  }
+
+  const micFaderButton = event.target.closest("[data-action='adjust-mic-fader']");
+
+  if (micFaderButton) {
+    startMicFaderHold(micFaderButton);
+    return;
+  }
+
+  const headphoneFaderButton = event.target.closest("[data-action='adjust-headphone-fader']");
+
+  if (headphoneFaderButton) {
+    startHeadphoneFaderHold(headphoneFaderButton);
     return;
   }
 
@@ -3632,7 +4022,10 @@ function startChannelFaderDrag(event, control) {
     pointerId: event.pointerId,
     control,
     switcherId: control.dataset.nodeId,
-    input: Number(control.dataset.input),
+    kind: control.dataset.audioKind ?? "source",
+    input: control.dataset.audioKind === "source" || !control.dataset.audioKind
+      ? Number(control.dataset.input)
+      : control.dataset.audioInput,
     channel: control.dataset.channel,
     rect
   };
@@ -3648,12 +4041,23 @@ function updateChannelFaderDrag(event) {
   const rect = activeChannelFaderDrag.rect;
   const ratio = clamp((rect.bottom - event.clientY) / rect.height, 0, 1);
   const value = -60 + ratio * 66;
-  setSwitcherInputChannelFader(
-    activeChannelFaderDrag.switcherId,
-    activeChannelFaderDrag.input,
-    activeChannelFaderDrag.channel,
-    value
-  );
+
+  if (activeChannelFaderDrag.kind === "mic") {
+    setSwitcherMicChannelFader(
+      activeChannelFaderDrag.switcherId,
+      activeChannelFaderDrag.input,
+      activeChannelFaderDrag.channel,
+      value
+    );
+    return;
+  }
+
+  if (activeChannelFaderDrag.kind === "headphone") {
+    setSwitcherHeadphoneFader(activeChannelFaderDrag.switcherId, value);
+    return;
+  }
+
+  setSwitcherInputChannelFader(activeChannelFaderDrag.switcherId, activeChannelFaderDrag.input, activeChannelFaderDrag.channel, value);
 }
 
 function endChannelFaderDrag(event) {
@@ -3676,17 +4080,19 @@ function startInputGainDrag(event, control) {
     return;
   }
 
-  const input = Number(control.dataset.input);
+  const kind = control.dataset.audioKind ?? "source";
+  const input = kind === "source" ? Number(control.dataset.input) : control.dataset.audioInput;
   activeGainDrag = {
     pointerId: event.pointerId,
     control,
     switcherId: switcher.id,
+    kind,
     input,
     startX: event.clientX,
-    startGain: getSwitcherInputGain(switcher, input)
+    startGain: getSwitcherAudioGain(switcher, kind, input)
   };
   control.setPointerCapture(event.pointerId);
-  showAudioMeter(switcher.id, input, { autoHide: false });
+  showAudioMeter(switcher.id, input, { kind, autoHide: false });
   renderAudioMeterPopover();
 }
 
@@ -3698,8 +4104,8 @@ function updateInputGainDrag(event) {
   }
 
   const delta = Math.round((event.clientX - activeGainDrag.startX) / 4) * 0.1;
-  setSwitcherInputGain(switcher, activeGainDrag.input, activeGainDrag.startGain + delta);
-  showAudioMeter(switcher.id, activeGainDrag.input, { autoHide: false });
+  setSwitcherAudioGain(switcher, activeGainDrag.kind, activeGainDrag.input, activeGainDrag.startGain + delta);
+  showAudioMeter(switcher.id, activeGainDrag.input, { kind: activeGainDrag.kind, autoHide: false });
   renderAudioMeterPopover();
 }
 

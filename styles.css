@@ -173,6 +173,14 @@ body.is-read-only #openGearLibrary {
   align-items: end;
 }
 
+.audio-meter-body.is-headphone {
+  grid-template-columns: 96px minmax(0, 1fr);
+}
+
+.audio-meter-body.is-headphone .audio-meter-readout {
+  min-height: 138px;
+}
+
 .audio-meter-strip {
   display: grid;
   gap: 6px;
