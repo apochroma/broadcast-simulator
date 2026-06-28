@@ -378,6 +378,7 @@ function renderNode(node) {
     "node",
     node.type,
     node.isTransitioning ? "is-transitioning" : "",
+    node.isFadingToBlack ? "is-fading-to-black" : "",
     node.cutFlashing ? "is-cut-flashing" : "",
     state.selectedNodeId === node.id ? "is-selected" : "",
     programSource?.id === node.id ? "is-program" : "",
@@ -641,7 +642,7 @@ function renderSwitcherPanel(switcher) {
           <div class="switcher-actions">
             <button class="switcher-action cut" type="button" data-action="cut" data-node-id="${switcher.id}">CUT</button>
             <button class="switcher-action auto" type="button" data-action="auto" data-node-id="${switcher.id}">AUTO</button>
-            ${renderPanelButton("FTB", "transition-extra")}
+            <button class="switcher-action ftb" type="button" data-action="ftb" data-node-id="${switcher.id}">FTB</button>
           </div>
         </section>
       </div>
@@ -1474,6 +1475,10 @@ function formatMeterDb(db) {
 }
 
 function isSwitcherInputAudioLive(switcher, input) {
+  if (switcher?.isFadeToBlackActive || switcher?.isFadingToBlack) {
+    return false;
+  }
+
   const mode = getSwitcherInputAudioMode(switcher, input);
   return mode === "on" || (mode === "afv" && switcher.programInput === input);
 }
@@ -1493,13 +1498,14 @@ function getSourceAudioColor(source, fallbackSeed) {
 function getSwitcherInputAudioMarker(switcher, input) {
   const mode = getSwitcherInputAudioMode(switcher, input);
   const fading = getActiveAudioFade(switcher.id, input);
+  const ftbFade = getActiveFtbAudioFade(switcher.id, input);
   const source = getSwitcherInputSource(switcher, input);
 
   if (!source) {
     return null;
   }
 
-  if (!isSwitcherInputAudioLive(switcher, input) && !fading) {
+  if (!isSwitcherInputAudioLive(switcher, input) && !fading && !ftbFade) {
     return null;
   }
 
@@ -1507,7 +1513,7 @@ function getSwitcherInputAudioMarker(switcher, input) {
     id: `${switcher.id}-input-${input}`,
     label: `Audio ${input}`,
     color: getSourceAudioColor(source, input),
-    fading: Boolean(fading),
+    fading: Boolean(fading || ftbFade),
     muted: mode === "off"
   };
 }
@@ -1548,6 +1554,16 @@ function getActiveAudioFade(switcherId, input) {
   ));
 }
 
+function getActiveFtbAudioFade(switcherId, input) {
+  const now = Date.now();
+  return state.audioFades.find((fade) => (
+    fade.switcherId === switcherId
+    && fade.input === input
+    && fade.type === "ftb"
+    && fade.expiresAt > now
+  ));
+}
+
 function purgeExpiredAudioFades() {
   const now = Date.now();
   state.audioFades = state.audioFades.filter((fade) => fade.expiresAt > now);
@@ -1577,9 +1593,39 @@ function beginAudioFadeForProgramChange(switcher, previousProgram, nextProgram) 
   state.audioFades.push({
     switcherId: switcher.id,
     input,
+    type: "afv",
     expiresAt: Date.now() + AUDIO_FADE_MS
   });
   scheduleAudioFadeCleanup();
+}
+
+function beginAudioFadeToBlack(switcher, durationMs) {
+  if (!switcher?.inputCount) {
+    return;
+  }
+
+  const fadingInputs = Array.from({ length: switcher.inputCount }, (_, index) => index + 1)
+    .filter((input) => isSwitcherInputAudioLive(switcher, input));
+
+  if (!fadingInputs.length) {
+    return;
+  }
+
+  const expiresAt = Date.now() + durationMs;
+  state.audioFades = state.audioFades.filter((fade) => !(
+    fade.switcherId === switcher.id
+    && fade.type === "ftb"
+    && fadingInputs.includes(fade.input)
+  ));
+  fadingInputs.forEach((input) => {
+    state.audioFades.push({
+      switcherId: switcher.id,
+      input,
+      type: "ftb",
+      expiresAt
+    });
+  });
+  scheduleAudioFadeCleanup(durationMs);
 }
 
 function setMicAudioMode(switcherId, micId, mode) {
@@ -1733,6 +1779,10 @@ function renderTransitionPicture(fromSource, toSource, durationMs = 650) {
 }
 
 function renderSignalPicture(source) {
+  if (source?.id === "black") {
+    return `<div class="black-picture" aria-label="Black"></div>`;
+  }
+
   if (isDisplaySourceNode(source)) {
     ensureSourceIdentity(source);
     return renderSourcePreview(source);
@@ -2692,6 +2742,7 @@ function selectPreview(switcherId, input) {
     if (getSwitcherBusMode(switcher) === "cutBus") {
       const previousProgram = switcher.programInput;
       switcher.programInput = source;
+      switcher.isFadeToBlackActive = source === "black";
       beginAudioFadeForProgramChange(switcher, previousProgram, source);
     } else {
       switcher.previewInput = source;
@@ -2792,6 +2843,7 @@ function cut(switcherId) {
     state.activeSwitcherId = switcher.id;
     const previousProgram = switcher.programInput;
     switcher.programInput = switcher.previewInput;
+    switcher.isFadeToBlackActive = switcher.programInput === "black";
     switcher.previewInput = previousProgram ?? switcher.previewInput;
     beginAudioFadeForProgramChange(switcher, previousProgram, switcher.programInput);
     switcher.cutFlashing = true;
@@ -2829,9 +2881,47 @@ function auto(switcherId) {
 
   window.setTimeout(() => {
     switcher.programInput = nextProgram;
+    switcher.isFadeToBlackActive = nextProgram === "black";
     switcher.previewInput = previousProgram ?? switcher.previewInput;
     beginAudioFadeForProgramChange(switcher, previousProgram, nextProgram);
     switcher.isTransitioning = false;
+    switcher.transition = null;
+    state.activeTransition = null;
+    render();
+  }, durationMs);
+}
+
+function fadeToBlack(switcherId) {
+  const switcher = getNode(switcherId);
+
+  if (switcher?.type !== "switcher" || switcher.isTransitioning || switcher.programInput === "black") {
+    return;
+  }
+
+  state.activeSwitcherId = switcher.id;
+  const previousProgram = switcher.programInput;
+  const durationMs = getSwitcherTransitionDurationMs(switcher);
+  const blackSource = getSwitcherMediaSource("black");
+  beginAudioFadeToBlack(switcher, durationMs);
+  switcher.transition = {
+    switcherId: switcher.id,
+    fromInput: previousProgram,
+    toInput: "black",
+    fromSource: previousProgram ? getSwitcherInputSource(switcher, previousProgram) : null,
+    toSource: blackSource,
+    durationMs
+  };
+  state.activeTransition = switcher.transition;
+  switcher.isTransitioning = true;
+  switcher.isFadingToBlack = true;
+  switcher.isFadeToBlackActive = false;
+  render();
+
+  window.setTimeout(() => {
+    switcher.programInput = "black";
+    switcher.isFadeToBlackActive = true;
+    switcher.isTransitioning = false;
+    switcher.isFadingToBlack = false;
     switcher.transition = null;
     state.activeTransition = null;
     render();
@@ -3302,6 +3392,10 @@ deviceLayer.addEventListener("click", (event) => {
 
   if (action === "auto") {
     auto(actionTarget.dataset.nodeId);
+  }
+
+  if (action === "ftb") {
+    fadeToBlack(actionTarget.dataset.nodeId);
   }
 
   if (action === "toggle-switcher-bus-mode") {
