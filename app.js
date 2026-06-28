@@ -274,7 +274,7 @@ function addGear(type, customTemplate) {
   const countOfType = state.nodes.filter((node) => node.type === template.type).length + 1;
   const position = getSpawnPosition(template.type, countOfType, template.width);
   const id = `${template.type}-${state.nextId}`;
-  const sourceLook = getSourceLook(state.nextId);
+  const sourceLook = getUnusedSourceLook(state.nextId);
   const node = {
     ...template,
     id,
@@ -488,6 +488,30 @@ function isDisplaySourceNode(node) {
 
 function getSourceLook(seed) {
   return sourceLooks[Math.abs(Number(seed) || 0) % sourceLooks.length];
+}
+
+function getUnusedSourceLook(seed, excludeNodeId = null) {
+  const usedColors = new Set(state.nodes
+    .filter((node) => isDisplaySourceNode(node) && node.id !== excludeNodeId)
+    .map((node) => node.sourceColor)
+    .filter(Boolean));
+  const preferredIndex = Math.abs(Number(seed) || 0) % sourceLooks.length;
+  const orderedLooks = [
+    ...sourceLooks.slice(preferredIndex),
+    ...sourceLooks.slice(0, preferredIndex)
+  ];
+  const unusedLook = orderedLooks.find((look) => !usedColors.has(look.color));
+
+  if (unusedLook) {
+    return unusedLook;
+  }
+
+  const hue = Math.round((Number(seed) * 137.508) % 360);
+  const color = `hsl(${hue} 78% 55%)`;
+  return {
+    color,
+    pattern: `linear-gradient(135deg, hsl(${hue} 68% 24%), ${color} 52%, hsl(${(hue + 42) % 360} 82% 78%))`
+  };
 }
 
 function ensureSourceIdentity(node) {
@@ -2618,8 +2642,8 @@ function renderLines() {
       return;
     }
 
-    const from = getSocketCenter(fromSocket, workspaceRect);
-    const to = getSocketCenter(toSocket, workspaceRect);
+    const from = getSocketAnchor(fromSocket, workspaceRect);
+    const to = getSocketAnchor(toSocket, workspaceRect);
     addCable(
       from,
       to,
@@ -2649,21 +2673,62 @@ function getSocketCenter(socket, workspaceRect) {
   };
 }
 
-function addCable(start, end, label, className, signal, audioMarkers = [], pathId = "cable-path") {
+function getSocketAnchor(socket, workspaceRect) {
+  return {
+    ...getSocketCenter(socket, workspaceRect),
+    side: socket.dataset.direction === "output" ? 1 : -1
+  };
+}
+
+function getCablePath(start, end) {
   const midX = start.x + (end.x - start.x) / 2;
+  const midY = start.y + (end.y - start.y) / 2;
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const verticalDistance = Math.abs(dy);
+  const startSide = start.side ?? (dx >= 0 ? 1 : -1);
+  const endSide = end.side ?? (dx >= 0 ? -1 : 1);
+  const isForwardConnection = dx * startSide > 0;
+  const isSimpleConnection = isForwardConnection && verticalDistance < 240;
+
+  if (isSimpleConnection) {
+    return {
+      d: `M ${start.x} ${start.y} C ${midX} ${start.y}, ${midX} ${end.y}, ${end.x} ${end.y}`,
+      labelX: midX - 22,
+      labelY: midY - 8
+    };
+  }
+
+  const exitLength = clamp(Math.abs(dx) * 0.18, 44, 120);
+  const startExitX = start.x + startSide * exitLength;
+  const endEntryX = end.x + endSide * exitLength;
+
+  return {
+    d: [
+      `M ${start.x} ${start.y}`,
+      `C ${start.x + startSide * exitLength * 0.55} ${start.y}, ${startExitX} ${start.y + dy * 0.08}, ${startExitX} ${start.y + dy * 0.22}`,
+      `C ${startExitX} ${midY}, ${endEntryX} ${midY}, ${endEntryX} ${end.y - dy * 0.22}`,
+      `C ${endEntryX} ${end.y - dy * 0.08}, ${end.x + endSide * exitLength * 0.55} ${end.y}, ${end.x} ${end.y}`
+    ].join(" "),
+    labelX: midX - 22,
+    labelY: midY - 8
+  };
+}
+
+function addCable(start, end, label, className, signal, audioMarkers = [], pathId = "cable-path") {
+  const cablePath = getCablePath(start, end);
   const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
   const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-  const pathD = `M ${start.x} ${start.y} C ${midX} ${start.y}, ${midX} ${end.y}, ${end.x} ${end.y}`;
 
   path.setAttribute("id", pathId);
-  path.setAttribute("d", pathD);
+  path.setAttribute("d", cablePath.d);
   path.style.stroke = signalColors[signal] ?? signalColors.SDI;
   if (className) {
     path.classList.add(className);
   }
 
-  text.setAttribute("x", String(midX - 22));
-  text.setAttribute("y", String((start.y + end.y) / 2 - 8));
+  text.setAttribute("x", String(cablePath.labelX));
+  text.setAttribute("y", String(cablePath.labelY));
   text.textContent = label;
 
   cableLayer.append(path, text);
@@ -3202,11 +3267,21 @@ function createNodeFromClipboardSnapshot(snapshot) {
     ensureSwitcherAudioState(node);
   }
 
+  if (isDisplaySourceNode(node)) {
+    const sourceLook = getUnusedSourceLook(state.nextId, node.id);
+    node.sourceColor = sourceLook.color;
+    node.pattern = sourceLook.pattern;
+  }
+
   return node;
 }
 
 function isTypingTarget(target) {
   return Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
+}
+
+function isDialogOpen() {
+  return Boolean(document.querySelector("dialog[open]"));
 }
 
 function isValidConnection(from, to) {
@@ -4298,7 +4373,7 @@ function startCableDrag(event, socketButton) {
   }
 
   const workspaceRect = workspace.getBoundingClientRect();
-  const start = getSocketCenter(socketButton, workspaceRect);
+  const start = getSocketAnchor(socketButton, workspaceRect);
 
   socketButton.setPointerCapture(event.pointerId);
   state.selectedSocket = null;
@@ -4396,7 +4471,19 @@ function clamp(value, min, max) {
 }
 
 document.addEventListener("keydown", (event) => {
-  if (!event.metaKey || event.altKey || event.ctrlKey || event.shiftKey || isTypingTarget(event.target)) {
+  if (isTypingTarget(event.target) || isDialogOpen()) {
+    return;
+  }
+
+  if ((event.key === "Delete" || event.key === "Backspace") && !event.metaKey && !event.altKey && !event.ctrlKey && !event.shiftKey) {
+    if (!state.readOnly && state.selectedNodeId) {
+      removeNode(state.selectedNodeId);
+      event.preventDefault();
+    }
+    return;
+  }
+
+  if (!event.metaKey || event.altKey || event.ctrlKey || event.shiftKey) {
     return;
   }
 
