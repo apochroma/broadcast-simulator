@@ -120,7 +120,7 @@ body.is-read-only #openGearLibrary {
   right: 32px;
   bottom: 32px;
   z-index: 80;
-  width: min(420px, calc(100vw - 32px));
+  width: min(480px, calc(100vw - 32px));
   padding: 16px;
   border: 1px solid rgba(76, 201, 240, 0.28);
   border-radius: 8px;
@@ -168,8 +168,8 @@ body.is-read-only #openGearLibrary {
 
 .audio-meter-body {
   display: grid;
-  grid-template-columns: 72px 72px minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: 80px 34px 80px minmax(0, 1fr);
+  gap: 12px;
   align-items: end;
 }
 
@@ -237,6 +237,113 @@ body.is-read-only #openGearLibrary {
     linear-gradient(180deg, rgba(255, 35, 50, 0.22) 0 16.67%, rgba(255, 210, 70, 0.18) 16.67% 33.33%, rgba(55, 230, 120, 0.14) 33.33%),
     #080a0c;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.09);
+}
+
+.audio-channel-strip {
+  display: grid;
+  grid-template-columns: 24px 42px;
+  gap: 8px;
+  align-items: end;
+}
+
+.audio-channel-fader {
+  position: relative;
+  width: 24px;
+  height: 154px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.audio-channel-fader-track {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 8px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: #050607;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.audio-channel-fader-thumb {
+  position: absolute;
+  left: 50%;
+  bottom: var(--fader-pos);
+  width: 32px;
+  height: 22px;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #f4f5f6, #9da3a8);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 2px 6px rgba(0, 0, 0, 0.55);
+  transform: translate(-50%, 50%);
+}
+
+.audio-channel-fader:focus-visible .audio-channel-fader-thumb {
+  outline: 2px solid rgba(76, 201, 240, 0.8);
+  outline-offset: 2px;
+}
+
+.audio-fader-lock {
+  display: grid;
+  place-items: center;
+  align-self: center;
+  justify-self: center;
+  width: 38px;
+  height: 42px;
+  margin-bottom: 58px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.audio-fader-lock:hover {
+  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.2));
+}
+
+.audio-fader-lock svg {
+  width: 32px;
+  height: 32px;
+  overflow: visible;
+}
+
+.lock-shackle {
+  fill: none;
+  stroke: #edf2f5;
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.lock-body {
+  fill: #8e969d;
+  stroke: rgba(255, 255, 255, 0.42);
+  stroke-width: 1;
+}
+
+.audio-fader-lock.is-locked .lock-body {
+  fill: #e0b52d;
+}
+
+.audio-fader-lock.is-unlocked .lock-body {
+  fill: #8e969d;
+}
+
+.lock-keyhole {
+  fill: none;
+  stroke: rgba(20, 22, 24, 0.78);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.audio-fader-lock.is-unlocked .lock-shackle {
+  stroke: #d7dde1;
 }
 
 .audio-meter-track::before {

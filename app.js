@@ -239,6 +239,7 @@ let gainHoldTimer = null;
 let gainHoldInterval = null;
 let suppressNextGainClick = false;
 let activeGainDrag = null;
+let activeChannelFaderDrag = null;
 
 const gearEntries = [
   ["canonCrn100", "Canon", "Canon CR-N100", "HDMI Out, SDI Out, RJ45"],
@@ -991,11 +992,21 @@ function createSwitcherAudioState(inputCount = 0) {
   return {
     sources: Object.fromEntries(Array.from({ length: inputCount }, (_, index) => [index + 1, "off"])),
     faders: Object.fromEntries(Array.from({ length: inputCount }, (_, index) => [index + 1, 0])),
+    channelFaders: Object.fromEntries(Array.from({ length: inputCount }, (_, index) => [index + 1, createAudioChannelFaderState()])),
     gains: Object.fromEntries(Array.from({ length: inputCount }, (_, index) => [index + 1, 0])),
     mics: {
       mic1: "off",
       mic2: "off"
     }
+  };
+}
+
+function createAudioChannelFaderState(value = 0, locked = true) {
+  const fader = clamp(Math.round(Number(value) * 10) / 10, -60, 6);
+  return {
+    left: fader,
+    right: fader,
+    locked
   };
 }
 
@@ -1010,16 +1021,30 @@ function ensureSwitcherAudioState(switcher) {
     switcher.audio.gains = {};
   }
   switcher.audio.faders ??= {};
+  switcher.audio.channelFaders ??= {};
   switcher.audio.gains ??= {};
   switcher.audio.mics ??= {};
 
   Array.from({ length: switcher.inputCount }, (_, index) => index + 1).forEach((input) => {
     switcher.audio.sources[input] ??= "off";
     switcher.audio.faders[input] ??= 0;
+    switcher.audio.channelFaders[input] = normalizeAudioChannelFaderState(switcher.audio.channelFaders[input], switcher.audio.faders[input]);
     switcher.audio.gains[input] ??= 0;
   });
   switcher.audio.mics.mic1 ??= "off";
   switcher.audio.mics.mic2 ??= "off";
+}
+
+function normalizeAudioChannelFaderState(channelFader, fallback = 0) {
+  if (!channelFader || typeof channelFader !== "object") {
+    return createAudioChannelFaderState(fallback);
+  }
+
+  return {
+    left: clamp(Math.round(Number(channelFader.left ?? fallback) * 10) / 10, -60, 6),
+    right: clamp(Math.round(Number(channelFader.right ?? fallback) * 10) / 10, -60, 6),
+    locked: channelFader.locked !== false
+  };
 }
 
 function setAudioSourceMode(switcherId, input, mode) {
@@ -1032,6 +1057,7 @@ function setAudioSourceMode(switcherId, input, mode) {
   ensureSwitcherAudioState(switcher);
   if (mode === "reset") {
     switcher.audio.faders[input] = 0;
+    switcher.audio.channelFaders[input] = createAudioChannelFaderState();
     switcher.audio.gains[input] = 0;
   } else {
     switcher.audio.sources[input] = mode;
@@ -1052,7 +1078,14 @@ function getSwitcherInputGain(switcher, input) {
 
 function getSwitcherInputFader(switcher, input) {
   ensureSwitcherAudioState(switcher);
-  return Number(switcher.audio.faders[input] ?? 0);
+  const channelFader = getSwitcherInputChannelFaders(switcher, input);
+  return Math.round(((channelFader.left + channelFader.right) / 2) * 10) / 10;
+}
+
+function getSwitcherInputChannelFaders(switcher, input) {
+  ensureSwitcherAudioState(switcher);
+  switcher.audio.channelFaders[input] = normalizeAudioChannelFaderState(switcher.audio.channelFaders[input], switcher.audio.faders[input]);
+  return switcher.audio.channelFaders[input];
 }
 
 function setSwitcherInputGain(switcher, input, gain) {
@@ -1062,7 +1095,57 @@ function setSwitcherInputGain(switcher, input, gain) {
 
 function setSwitcherInputFader(switcher, input, fader) {
   ensureSwitcherAudioState(switcher);
-  switcher.audio.faders[input] = clamp(Math.round(Number(fader) * 10) / 10, -60, 6);
+  const value = clamp(Math.round(Number(fader) * 10) / 10, -60, 6);
+  switcher.audio.faders[input] = value;
+  switcher.audio.channelFaders[input] = {
+    ...getSwitcherInputChannelFaders(switcher, input),
+    left: value,
+    right: value
+  };
+}
+
+function setSwitcherInputChannelFader(switcherId, input, channel, value) {
+  const switcher = getNode(switcherId);
+
+  if (switcher?.type !== "switcher") {
+    return;
+  }
+
+  ensureSwitcherAudioState(switcher);
+  const nextValue = clamp(Math.round(Number(value) * 10) / 10, -60, 6);
+  const channelFader = getSwitcherInputChannelFaders(switcher, input);
+
+  if (channelFader.locked) {
+    const activeChannel = channel === "right" ? "right" : "left";
+    const requestedDelta = nextValue - channelFader[activeChannel];
+    const minDelta = -60 - Math.min(channelFader.left, channelFader.right);
+    const maxDelta = 6 - Math.max(channelFader.left, channelFader.right);
+    const delta = clamp(requestedDelta, minDelta, maxDelta);
+    channelFader.left = Math.round((channelFader.left + delta) * 10) / 10;
+    channelFader.right = Math.round((channelFader.right + delta) * 10) / 10;
+  } else {
+    channelFader[channel === "right" ? "right" : "left"] = nextValue;
+  }
+
+  switcher.audio.faders[input] = Math.round(((channelFader.left + channelFader.right) / 2) * 10) / 10;
+  showAudioMeter(switcherId, input, { autoHide: false });
+  renderAudioMeterPopover();
+}
+
+function toggleSwitcherInputFaderLock(switcherId, input) {
+  const switcher = getNode(switcherId);
+
+  if (switcher?.type !== "switcher") {
+    return;
+  }
+
+  ensureSwitcherAudioState(switcher);
+  const channelFader = getSwitcherInputChannelFaders(switcher, input);
+  channelFader.locked = !channelFader.locked;
+  switcher.audio.faders[input] = Math.round(((channelFader.left + channelFader.right) / 2) * 10) / 10;
+
+  showAudioMeter(switcherId, input, { autoHide: false });
+  renderAudioMeterPopover();
 }
 
 function adjustAudioFader(switcherId, input, direction) {
@@ -1195,10 +1278,11 @@ function renderAudioMeterPopover() {
   const source = getSwitcherInputSource(switcher, input);
   const gain = getSwitcherInputGain(switcher, input);
   const fader = getSwitcherInputFader(switcher, input);
+  const channelFaders = getSwitcherInputChannelFaders(switcher, input);
   const hasSignal = Boolean(source);
   const audible = Boolean(source) && isSwitcherInputAudioLive(switcher, input);
-  const leftDb = getAudioMeterDb(input, gain, fader, 0, hasSignal);
-  const rightDb = getAudioMeterDb(input, gain, fader, 1, hasSignal);
+  const leftDb = getAudioMeterDb(input, gain, channelFaders.left, 0, hasSignal);
+  const rightDb = getAudioMeterDb(input, gain, channelFaders.right, 1, hasSignal);
   const status = getAudioMeterStatusLabel(mode, audible, source);
 
   audioMeterPopover.classList.toggle("is-muted", !audible);
@@ -1212,41 +1296,103 @@ function renderAudioMeterPopover() {
       <em>${mode.toUpperCase()}</em>
     </div>
     <div class="audio-meter-body">
-      ${renderAudioMeterStrip("L", leftDb, mode)}
-      ${renderAudioMeterStrip("R", rightDb, mode)}
+      ${renderAudioMeterStrip("L", leftDb, mode, channelFaders.left, switcher.id, input)}
+      ${renderAudioFaderLockControl(switcher.id, input, channelFaders.locked)}
+      ${renderAudioMeterStrip("R", rightDb, mode, channelFaders.right, switcher.id, input)}
       <div class="audio-meter-readout">
         <span>GAIN</span>
         ${renderAudioGainControl(switcher, input)}
         <span>FADER</span>
-        <strong>${formatSignedDb(fader)}</strong>
+        <strong>${formatFaderReadout(channelFaders, fader)}</strong>
         <small>${status}</small>
       </div>
     </div>
   `;
 }
 
-function renderAudioMeterStrip(label, db, mode) {
+function renderAudioMeterStrip(label, db, mode, fader, switcherId, input) {
   const level = getAudioMeterPercent(db);
   const levelRange = getAudioMeterDynamicRange(db);
+  const channel = label === "R" ? "right" : "left";
+  const faderPercent = getAudioFaderPercent(fader);
 
   return `
     <div class="audio-meter-strip" style="--level: ${level}%; --level-low: ${levelRange.low}%; --level-high: ${levelRange.high}%">
       <i class="audio-mode-bar ${getAudioModeBarClass(mode)}"></i>
       <strong>${formatMeterDb(db)}</strong>
-      <div class="audio-meter-track">
-        <div class="audio-meter-scale" aria-hidden="true">
-          <span style="bottom: 100%">0</span>
-          <span style="bottom: 83.33%">-10</span>
-          <span style="bottom: 66.67%">-20</span>
-          <span style="bottom: 50%">-30</span>
-          <span style="bottom: 33.33%">-40</span>
-          <span style="bottom: 16.67%">-50</span>
+      <div class="audio-channel-strip">
+        <button class="audio-channel-fader"
+          type="button"
+          role="slider"
+          aria-valuemin="-60"
+          aria-valuemax="6"
+          aria-valuenow="${fader}"
+          style="--fader-pos: ${faderPercent}%"
+          data-action="set-channel-fader"
+          data-node-id="${switcherId}"
+          data-input="${input}"
+          data-channel="${channel}"
+          aria-label="Fader ${label} ${formatSignedDb(fader)}">
+          <span class="audio-channel-fader-track" aria-hidden="true"></span>
+          <span class="audio-channel-fader-thumb" aria-hidden="true"></span>
+        </button>
+        <div class="audio-meter-track">
+          <div class="audio-meter-scale" aria-hidden="true">
+            <span style="bottom: 100%">0</span>
+            <span style="bottom: 83.33%">-10</span>
+            <span style="bottom: 66.67%">-20</span>
+            <span style="bottom: 50%">-30</span>
+            <span style="bottom: 33.33%">-40</span>
+            <span style="bottom: 16.67%">-50</span>
+          </div>
+          <i></i>
         </div>
-        <i></i>
       </div>
       <span>${label}</span>
     </div>
   `;
+}
+
+function getAudioFaderPercent(fader) {
+  return clamp(((Number(fader) + 60) / 66) * 100, 0, 100);
+}
+
+function renderAudioFaderLockControl(switcherId, input, locked) {
+  const icon = locked
+    ? `
+      <svg viewBox="0 0 40 40" aria-hidden="true">
+        <path class="lock-shackle" d="M12 18v-5.5C12 7.5 15.6 4 20 4s8 3.5 8 8.5V18" />
+        <rect class="lock-body" x="9" y="17" width="22" height="17" rx="4" />
+        <path class="lock-keyhole" d="M20 23v5" />
+      </svg>
+    `
+    : `
+      <svg viewBox="0 0 40 40" aria-hidden="true">
+        <path class="lock-shackle" d="M14 18v-5.5C14 7.5 17.6 4 22 4c3.2 0 6 1.9 7.2 4.8" />
+        <rect class="lock-body" x="9" y="17" width="22" height="17" rx="4" />
+        <path class="lock-keyhole" d="M20 23v5" />
+      </svg>
+    `;
+
+  return `
+    <button class="audio-fader-lock ${locked ? "is-locked" : "is-unlocked"}"
+      type="button"
+      data-action="toggle-channel-fader-lock"
+      data-node-id="${switcherId}"
+      data-input="${input}"
+      aria-pressed="${locked}"
+      aria-label="${locked ? "Fader gekoppelt" : "Fader unabhängig"}">
+      ${icon}
+    </button>
+  `;
+}
+
+function formatFaderReadout(channelFaders, fallback) {
+  if (channelFaders.left === channelFaders.right) {
+    return formatSignedDb(channelFaders.left);
+  }
+
+  return `L ${formatSignedDb(channelFaders.left)} / R ${formatSignedDb(channelFaders.right)}`;
 }
 
 function getAudioModeBarClass(mode) {
@@ -2451,6 +2597,7 @@ function createNodeClipboardSnapshot(node) {
     audio: node.audio ? {
       sources: { ...node.audio.sources },
       faders: { ...(node.audio.faders ?? {}) },
+      channelFaders: Object.fromEntries(Object.entries(node.audio.channelFaders ?? {}).map(([input, fader]) => [input, { ...fader }])),
       gains: { ...(node.audio.gains ?? {}) },
       mics: { ...node.audio.mics }
     } : node.audio,
@@ -2476,6 +2623,7 @@ function createNodeFromClipboardSnapshot(snapshot) {
     audio: snapshot.audio ? {
       sources: { ...snapshot.audio.sources },
       faders: { ...(snapshot.audio.faders ?? {}) },
+      channelFaders: Object.fromEntries(Object.entries(snapshot.audio.channelFaders ?? {}).map(([input, fader]) => [input, { ...fader }])),
       gains: { ...(snapshot.audio.gains ?? {}) },
       mics: { ...snapshot.audio.mics }
     } : snapshot.audio,
@@ -3212,10 +3360,29 @@ audioMeterPopover?.addEventListener("pointerdown", (event) => {
     return;
   }
 
+  const channelFader = event.target.closest("[data-action='set-channel-fader']");
+
+  if (channelFader) {
+    startChannelFaderDrag(event, channelFader);
+    return;
+  }
+
   const inputGainControl = event.target.closest("[data-action='adjust-input-gain']");
 
   if (inputGainControl) {
     startInputGainDrag(event, inputGainControl);
+  }
+});
+
+audioMeterPopover?.addEventListener("click", (event) => {
+  if (state.readOnly) {
+    return;
+  }
+
+  const lockButton = event.target.closest("[data-action='toggle-channel-fader-lock']");
+
+  if (lockButton) {
+    toggleSwitcherInputFaderLock(lockButton.dataset.nodeId, Number(lockButton.dataset.input));
   }
 });
 
@@ -3349,15 +3516,64 @@ document.addEventListener("pointermove", (event) => {
   if (activeGainDrag && activeGainDrag.pointerId === event.pointerId) {
     updateInputGainDrag(event);
   }
+
+  if (activeChannelFaderDrag && activeChannelFaderDrag.pointerId === event.pointerId) {
+    updateChannelFaderDrag(event);
+  }
 });
 document.addEventListener("pointerup", (event) => {
   stopFaderHold();
   endInputGainDrag(event);
+  endChannelFaderDrag(event);
 });
 document.addEventListener("pointercancel", (event) => {
   stopFaderHold();
   endInputGainDrag(event);
+  endChannelFaderDrag(event);
 });
+
+function startChannelFaderDrag(event, control) {
+  const rect = control.getBoundingClientRect();
+  activeChannelFaderDrag = {
+    pointerId: event.pointerId,
+    control,
+    switcherId: control.dataset.nodeId,
+    input: Number(control.dataset.input),
+    channel: control.dataset.channel,
+    rect
+  };
+  control.setPointerCapture?.(event.pointerId);
+  updateChannelFaderDrag(event);
+}
+
+function updateChannelFaderDrag(event) {
+  if (!activeChannelFaderDrag) {
+    return;
+  }
+
+  const rect = activeChannelFaderDrag.rect;
+  const ratio = clamp((rect.bottom - event.clientY) / rect.height, 0, 1);
+  const value = -60 + ratio * 66;
+  setSwitcherInputChannelFader(
+    activeChannelFaderDrag.switcherId,
+    activeChannelFaderDrag.input,
+    activeChannelFaderDrag.channel,
+    value
+  );
+}
+
+function endChannelFaderDrag(event) {
+  if (!activeChannelFaderDrag || activeChannelFaderDrag.pointerId !== event.pointerId) {
+    return;
+  }
+
+  try {
+    activeChannelFaderDrag.control.releasePointerCapture?.(event.pointerId);
+  } catch {
+    // The popover re-renders while dragging, so the original control may already be detached.
+  }
+  activeChannelFaderDrag = null;
+}
 
 function startInputGainDrag(event, control) {
   const switcher = getNode(control.dataset.nodeId);
