@@ -115,6 +115,270 @@ body.is-read-only #openGearLibrary {
   display: none !important;
 }
 
+.audio-meter-popover {
+  position: fixed;
+  right: 32px;
+  bottom: 32px;
+  z-index: 80;
+  width: min(420px, calc(100vw - 32px));
+  padding: 16px;
+  border: 1px solid rgba(76, 201, 240, 0.28);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(38, 45, 52, 0.96), rgba(16, 20, 24, 0.96));
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+  color: var(--text);
+  pointer-events: auto;
+}
+
+.audio-meter-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.audio-meter-head span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.audio-meter-head strong {
+  display: block;
+  margin-top: 3px;
+  font-size: 1.2rem;
+  line-height: 1.1;
+}
+
+.audio-meter-head em {
+  min-width: 58px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 900;
+  text-align: center;
+}
+
+.audio-meter-body {
+  display: grid;
+  grid-template-columns: 72px 72px minmax(0, 1fr);
+  gap: 14px;
+  align-items: end;
+}
+
+.audio-meter-strip {
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+}
+
+.audio-mode-bar {
+  display: block;
+  width: 46px;
+  height: 7px;
+  border-radius: 999px;
+  background: #1b1d20;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 2px 8px rgba(0, 0, 0, 0.32);
+}
+
+.audio-mode-bar.is-on {
+  background: #ff222f;
+  box-shadow:
+    0 0 10px rgba(255, 34, 47, 0.7),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+.audio-mode-bar.is-afv {
+  background: #d2ad05;
+  box-shadow:
+    0 0 10px rgba(210, 173, 5, 0.55),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+}
+
+.audio-mode-bar.is-off {
+  background: #22262a;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 2px 8px rgba(0, 0, 0, 0.34);
+}
+
+.audio-meter-strip > span,
+.audio-meter-strip > strong {
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.audio-meter-strip > strong {
+  min-height: 20px;
+  color: #f0dd21;
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.audio-meter-strip > span {
+  font-size: 0.75rem;
+}
+
+.audio-meter-track {
+  position: relative;
+  width: 42px;
+  height: 154px;
+  border-radius: 4px;
+  background:
+    linear-gradient(180deg, rgba(255, 35, 50, 0.22) 0 16.67%, rgba(255, 210, 70, 0.18) 16.67% 33.33%, rgba(55, 230, 120, 0.14) 33.33%),
+    #080a0c;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.09);
+}
+
+.audio-meter-track::before {
+  content: "";
+  position: absolute;
+  inset: 8px 18px 8px 8px;
+  background: repeating-linear-gradient(
+    to top,
+    rgba(255, 255, 255, 0.14) 0 1px,
+    transparent 1px 10px
+  );
+  opacity: 0.7;
+}
+
+.audio-meter-track i {
+  position: absolute;
+  right: 20px;
+  bottom: 6px;
+  left: 6px;
+  height: var(--level);
+  border-radius: 3px 3px 1px 1px;
+  background: linear-gradient(180deg, #f02a34 0 16.67%, #e0d31f 16.67% 33.33%, #18c733 33.33%);
+  background-size: 100% 142px;
+  background-position: bottom;
+  animation: meterLevelPulse 760ms ease-in-out infinite alternate;
+  box-shadow: 0 0 12px rgba(24, 199, 51, 0.42);
+}
+
+.audio-meter-scale {
+  position: absolute;
+  top: 6px;
+  right: 4px;
+  bottom: 6px;
+  width: 15px;
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 0.52rem;
+  font-weight: 900;
+  pointer-events: none;
+}
+
+.audio-meter-scale span {
+  position: absolute;
+  right: 0;
+  transform: translateY(50%);
+}
+
+.audio-meter-popover.is-muted .audio-meter-track {
+  background:
+    linear-gradient(180deg, rgba(120, 126, 132, 0.24), rgba(80, 86, 92, 0.12)),
+    #080a0c;
+}
+
+.audio-meter-popover.is-muted .audio-meter-track i {
+  background: linear-gradient(180deg, #aeb4ba, #6f777f);
+  box-shadow: none;
+}
+
+.audio-meter-popover.is-muted .audio-meter-strip > strong {
+  color: #b8bec4;
+}
+
+.audio-meter-readout {
+  display: grid;
+  align-content: end;
+  gap: 8px;
+  min-height: 138px;
+  padding: 12px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.24);
+}
+
+.audio-meter-readout span,
+.audio-meter-readout small {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.audio-meter-readout strong {
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.audio-meter-readout b {
+  color: var(--text);
+  font-size: 1.1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.audio-meter-readout small {
+  line-height: 1.25;
+  text-transform: none;
+}
+
+@keyframes meterLevelPulse {
+  from {
+    height: var(--level-low);
+  }
+
+  to {
+    height: var(--level-high);
+  }
+}
+
+.audio-gain-control {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  cursor: ew-resize;
+  text-align: left;
+}
+
+.audio-gain-control .mini-knob {
+  width: 40px;
+  height: 40px;
+  justify-self: center;
+  box-shadow:
+    0 0 0 3px rgba(26, 216, 70, 0.82),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.5),
+    0 8px 16px rgba(0, 0, 0, 0.32);
+}
+
+.audio-gain-control .mini-knob::after {
+  top: 19px;
+  width: 16px;
+  height: 3px;
+  transform: rotate(var(--knob-angle)) translateX(4px);
+}
+
+.audio-gain-control strong {
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+
 .library {
   display: flex;
   flex-wrap: wrap;
@@ -487,33 +751,68 @@ body.is-read-only #openGearLibrary {
   padding: 0 14px 14px;
 }
 
-.gear-image {
+.gear-image,
+.source-product-image {
   width: 100%;
-  height: 150px;
+  height: 100%;
   object-fit: contain;
   border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: #f4f4f4;
 }
 
-.camera-visual {
+.gear-image,
+.source-visual .source-product-image {
+  height: 150px;
+}
+
+.source-visual {
   display: block;
   width: 100%;
   padding: 0;
+  border: 0;
   border-radius: 6px;
   background: transparent;
   cursor: pointer;
 }
 
-.camera-visual .test-picture {
+.source-visual .test-picture,
+.source-visual .media-surface,
+.source-product-face {
   height: 150px;
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.camera-visual:hover .gear-image,
-.camera-visual:hover .test-picture {
+.source-visual:hover .source-product-image,
+.source-visual:hover .test-picture,
+.source-visual:hover .media-surface,
+.source-visual:hover .source-product-face {
   outline: 2px solid rgba(53, 208, 127, 0.55);
   outline-offset: 2px;
+}
+
+.source-product-face {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  padding: 18px;
+  border-radius: 6px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(76, 201, 240, 0.12)),
+    #0b0f12;
+  color: var(--text);
+  text-align: center;
+}
+
+.source-product-face strong {
+  font-size: 1.45rem;
+  line-height: 1;
+}
+
+.source-product-face span {
+  color: var(--muted);
+  font-weight: 900;
 }
 
 .atem-image {
@@ -1014,6 +1313,31 @@ body.is-read-only #openGearLibrary {
   color: #fff;
 }
 
+.mini-knob {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 35% 32%, #f8f8f8 0 18%, #cfd2d4 44%, #767d82 76%, #202326 100%);
+  box-shadow:
+    0 0 0 2px rgba(30, 220, 70, 0.78),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+}
+
+.mini-knob::after {
+  content: "";
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  width: 8px;
+  height: 2px;
+  border-radius: 999px;
+  background: #101214;
+  transform: rotate(var(--knob-angle)) translateX(2px);
+  transform-origin: left center;
+}
+
 .duration-button.is-selected,
 .video-out-button.is-selected,
 .pip-button.is-selected {
@@ -1287,6 +1611,10 @@ body.is-read-only #openGearLibrary {
   height: 126px;
   min-height: 0;
   gap: 16px;
+}
+
+.atem-source-top-controls .atem-source-control-grid {
+  transform: translateY(-23px);
 }
 
 .source-button {

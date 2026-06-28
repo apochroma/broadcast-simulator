@@ -9,6 +9,17 @@ const signalColors = {
   Network: "#9b7bff"
 };
 
+const sourceLooks = [
+  { color: "#f72585", pattern: "linear-gradient(135deg, #5a189a, #f72585 52%, #4cc9f0)" },
+  { color: "#2dd4bf", pattern: "linear-gradient(135deg, #0f766e, #2dd4bf 52%, #a7f3d0)" },
+  { color: "#f97316", pattern: "linear-gradient(135deg, #7c2d12, #f97316 52%, #fde68a)" },
+  { color: "#8b5cf6", pattern: "linear-gradient(135deg, #312e81, #8b5cf6 52%, #c4b5fd)" },
+  { color: "#22c55e", pattern: "linear-gradient(135deg, #14532d, #22c55e 52%, #bef264)" },
+  { color: "#ef4444", pattern: "linear-gradient(135deg, #7f1d1d, #ef4444 52%, #fecaca)" },
+  { color: "#0ea5e9", pattern: "linear-gradient(135deg, #0c4a6e, #0ea5e9 52%, #bae6fd)" },
+  { color: "#eab308", pattern: "linear-gradient(135deg, #713f12, #eab308 52%, #fef08a)" }
+];
+
 const gearLibrary = {
   canonCrn100: makeCanonCameraTemplate("Canon CR-N100"),
   canonCrn300: {
@@ -168,15 +179,6 @@ function makeAtemTemplate({ title, inputCount, videoSignal, videoLabel, hdmiOutp
   };
 }
 
-const cameraPatterns = [
-  "linear-gradient(135deg, #2364aa, #3da5d9 48%, #73bfb8)",
-  "linear-gradient(135deg, #9b2226, #ee9b00 48%, #e9d8a6)",
-  "linear-gradient(135deg, #31572c, #90a955 48%, #ecf39e)",
-  "linear-gradient(135deg, #5a189a, #f72585 48%, #4cc9f0)",
-  "linear-gradient(135deg, #0f4c5c, #5f0f40 48%, #fb8b24)",
-  "linear-gradient(135deg, #293241, #ee6c4d 48%, #98c1d9)"
-];
-
 const WORLD_WIDTH = 12000;
 const WORLD_HEIGHT = 8000;
 const MIN_ZOOM = 0.2;
@@ -187,6 +189,10 @@ const VIDEO_PREVIEW_WIDTH = 640;
 const VIDEO_PREVIEW_FPS = 15;
 const ORIGINAL_VIDEO_EMBED_LIMIT_BYTES = 40 * 1024 * 1024;
 const AUDIO_FADE_MS = 900;
+const AUDIO_METER_HIDE_MS = 1800;
+const AUDIO_METER_SWITCH_DELAY_MS = 1200;
+const GAIN_HOLD_DELAY_MS = 360;
+const GAIN_HOLD_INTERVAL_MS = 70;
 const audioNoteColors = ["#d65aff", "#ff4f6a", "#55e6a5", "#ffd166", "#60d8ff", "#f78c3f"];
 
 const state = {
@@ -194,6 +200,7 @@ const state = {
   zoom: 1,
   activeSwitcherId: null,
   activeTransition: null,
+  activeAudioMeter: null,
   audioFades: [],
   readOnly: false,
   selectedNodeId: null,
@@ -207,6 +214,7 @@ const workspaceScaleShell = document.querySelector("#workspaceScaleShell");
 const workspace = document.querySelector("#workspace");
 const cableLayer = document.querySelector("#cableLayer");
 const deviceLayer = document.querySelector("#deviceLayer");
+const audioMeterPopover = document.querySelector("#audioMeterPopover");
 const emptyState = document.querySelector("#emptyState");
 const programStatus = document.querySelector("#programStatus");
 const zoomReadout = document.querySelector("#zoomReadout");
@@ -224,6 +232,13 @@ let suppressNextSocketClick = false;
 let editDraft = null;
 let gearFilter = "";
 let copiedNodeSnapshot = null;
+let audioMeterTimer = null;
+let audioMeterHoverTimer = null;
+let audioMeterSwitchTimer = null;
+let gainHoldTimer = null;
+let gainHoldInterval = null;
+let suppressNextGainClick = false;
+let activeGainDrag = null;
 
 const gearEntries = [
   ["canonCrn100", "Canon", "Canon CR-N100", "HDMI Out, SDI Out, RJ45"],
@@ -257,6 +272,7 @@ function addGear(type, customTemplate) {
   const countOfType = state.nodes.filter((node) => node.type === template.type).length + 1;
   const position = getSpawnPosition(template.type, countOfType, template.width);
   const id = `${template.type}-${state.nextId}`;
+  const sourceLook = getSourceLook(state.nextId);
   const node = {
     ...template,
     id,
@@ -266,7 +282,7 @@ function addGear(type, customTemplate) {
     title: template.type === "camera" ? `${template.title} ${countOfType}` : template.title,
     shortName: template.type === "camera" ? `CAM ${countOfType}` : getShortName(template.title),
     position,
-    viewMode: template.type === "camera" ? "photo" : null,
+    viewMode: getDefaultSourceViewMode(template.type),
     media: template.type === "computer" ? createPlaceholderMedia("Computer") : null,
     previewInput: template.type === "switcher" ? 1 : null,
     programInput: null,
@@ -280,7 +296,8 @@ function addGear(type, customTemplate) {
     isStreaming: false,
     cutFlashing: false,
     audio: template.type === "switcher" ? createSwitcherAudioState(template.inputCount) : null,
-    pattern: cameraPatterns[(countOfType - 1) % cameraPatterns.length]
+    sourceColor: sourceLook.color,
+    pattern: sourceLook.pattern
   };
 
   state.nextId += 1;
@@ -331,6 +348,7 @@ function render() {
   deviceLayer.innerHTML = state.nodes.map(renderNode).join("");
   emptyState.classList.toggle("is-hidden", state.nodes.length > 0);
   programStatus.textContent = getProgramStatus();
+  renderAudioMeterPopover();
   renderGearList();
   renderZoom();
   requestAnimationFrame(renderLines);
@@ -352,6 +370,7 @@ function renderGearList() {
 }
 
 function renderNode(node) {
+  ensureSourceIdentity(node);
   const programSource = getSwitcherProgramSource(getActiveSwitcher());
   const previewSource = getSwitcherPreviewSource(getActiveSwitcher());
   const classes = [
@@ -403,14 +422,16 @@ function renderSwitcherModeButton(switcher) {
 }
 
 function renderNodeBody(node) {
-  if (node.type === "camera") {
+  if (isDisplaySourceNode(node)) {
     return `
-      <button class="camera-visual" type="button" data-action="toggle-camera-view" data-node-id="${node.id}">
-        ${node.viewMode === "signal" ? renderSignalPicture(node) : `<img class="gear-image" src="${node.image}" alt="${node.title}">`}
+      <button class="source-visual" type="button" data-action="cycle-source-view" data-node-id="${node.id}">
+        ${renderSourcePreview(node)}
       </button>
       <div class="node-meta">
         <span>${node.shortName}</span>
-        <span>${node.viewMode === "signal" ? "Testbild" : "Kamerabild"}</span>
+        ${node.type === "computer"
+          ? `<button class="small-button ${state.readOnly ? "is-hidden" : ""}" type="button" data-action="random-media" data-node-id="${node.id}">Random</button>`
+          : `<span>${getSourceViewLabel(node)}</span>`}
       </div>
     `;
   }
@@ -437,18 +458,6 @@ function renderNodeBody(node) {
     `;
   }
 
-  if (node.type === "computer") {
-    return `
-      <div class="media-drop-zone" data-drop-target="${node.id}">
-        ${renderMediaSurface(node)}
-      </div>
-      <div class="node-meta">
-        <span>${node.media?.name ?? "Keine Datei"}</span>
-        <button class="small-button ${state.readOnly ? "is-hidden" : ""}" type="button" data-action="random-media" data-node-id="${node.id}">Random</button>
-      </div>
-    `;
-  }
-
   if (node.type === "monitor") {
     return `
       <div class="monitor-screen">
@@ -468,6 +477,115 @@ function renderNodeBody(node) {
       <span>${node.inputs[0]?.signal ?? node.outputs[0]?.signal ?? "Gear"}</span>
     </div>
   `;
+}
+
+function isDisplaySourceNode(node) {
+  return node?.type === "camera" || node?.type === "computer";
+}
+
+function getSourceLook(seed) {
+  return sourceLooks[Math.abs(Number(seed) || 0) % sourceLooks.length];
+}
+
+function ensureSourceIdentity(node) {
+  if (!isDisplaySourceNode(node)) {
+    return;
+  }
+
+  const look = getSourceLook(String(node.id ?? "").split("-").pop() ?? 0);
+  node.sourceColor ??= look.color;
+  node.pattern ??= look.pattern;
+  node.viewMode = normalizeSourceViewMode(node);
+}
+
+function getDefaultSourceViewMode(type) {
+  if (type === "camera") {
+    return "product";
+  }
+
+  if (type === "computer") {
+    return "color";
+  }
+
+  return null;
+}
+
+function normalizeSourceViewMode(node) {
+  if (!isDisplaySourceNode(node)) {
+    return node?.viewMode ?? null;
+  }
+
+  if (node.viewMode === "signal") {
+    return "color";
+  }
+
+  if (node.viewMode === "photo") {
+    return "product";
+  }
+
+  return ["color", "media", "product"].includes(node.viewMode)
+    ? node.viewMode
+    : getDefaultSourceViewMode(node.type);
+}
+
+function getAvailableSourceViewModes(node) {
+  const modes = ["color"];
+
+  if (node.media && node.media.kind !== "file") {
+    modes.push("media");
+  }
+
+  modes.push("product");
+  return modes;
+}
+
+function renderSourcePreview(node) {
+  const mode = normalizeSourceViewMode(node);
+
+  if (mode === "media" && node.media && node.media.kind !== "file") {
+    return renderMediaSurface(node);
+  }
+
+  if (mode === "product") {
+    return renderSourceProductPicture(node);
+  }
+
+  return renderSourceColorPicture(node);
+}
+
+function renderSourceColorPicture(node) {
+  return `
+    <div class="test-picture source-color-picture" style="background: ${node.pattern ?? "#20262d"}">
+      <span>${node.title}</span>
+    </div>
+  `;
+}
+
+function renderSourceProductPicture(node) {
+  if (node.image) {
+    return `<img class="source-product-image" src="${node.image}" alt="${node.title}">`;
+  }
+
+  return `
+    <div class="source-product-face">
+      <strong>${node.title}</strong>
+      <span>${node.kicker}</span>
+    </div>
+  `;
+}
+
+function getSourceViewLabel(node) {
+  const mode = normalizeSourceViewMode(node);
+
+  if (mode === "media") {
+    return node.media?.name ?? "Medium";
+  }
+
+  if (mode === "product") {
+    return node.type === "camera" ? "Kamerabild" : "Gerätebild";
+  }
+
+  return "Farbe";
 }
 
 function renderSockets(node, direction) {
@@ -631,8 +749,8 @@ function renderSourceColumn(switcher, input) {
       ${renderAudioButton(switcher, input, "reset", "RESET", mode)}
       ${renderAudioButton(switcher, input, "on", "ON", mode)}
       ${renderAudioButton(switcher, input, "off", "OFF", mode)}
-        ${renderPanelButton("▲")}
-        ${renderPanelButton("▼")}
+        ${renderFaderAdjustButton(switcher, input, "up", "▲")}
+        ${renderFaderAdjustButton(switcher, input, "down", "▼")}
       </div>
       ${renderSourceButton(switcher, input)}
     </div>
@@ -643,9 +761,45 @@ function renderSourceTopControls(switcher, input) {
   return `
     <div class="atem-source-top-controls">
       <div class="atem-source-control-grid">
-        ${["GAIN", "FOCUS", "BLACK", "SHUT", "▲", "▼"].map((label) => renderPanelButton(label)).join("")}
+        ${renderPanelButton("GAIN")}
+        ${renderPanelButton("FOCUS")}
+        ${renderPanelButton("BLACK")}
+        ${renderPanelButton("SHUT")}
+        ${renderPanelButton("▲")}
+        ${renderPanelButton("▼")}
       </div>
     </div>
+  `;
+}
+
+function renderAudioGainControl(switcher, input) {
+  const gain = getSwitcherInputGain(switcher, input);
+  const angle = -135 + ((gain + 20) / 40) * 270;
+
+  return `
+    <button class="audio-gain-control"
+      type="button"
+      data-action="adjust-input-gain"
+      data-node-id="${switcher.id}"
+      data-input="${input}"
+      aria-label="Gain ${getSwitcherBusSourceLabel(input)} ${formatSignedValue(gain)} dB">
+      <span class="mini-knob" style="--knob-angle: ${angle}deg"></span>
+      <strong>${formatSignedDb(gain)}</strong>
+    </button>
+  `;
+}
+
+function renderFaderAdjustButton(switcher, input, direction, label) {
+  return `
+    <button class="panel-button fader-button"
+      type="button"
+      data-action="adjust-audio-fader"
+      data-node-id="${switcher.id}"
+      data-input="${input}"
+      data-audio-input="${input}"
+      data-direction="${direction}">
+      ${label}
+    </button>
   `;
 }
 
@@ -658,6 +812,7 @@ function renderAudioButton(switcher, input, mode, label, activeMode) {
       data-action="set-audio-source"
       data-node-id="${switcher.id}"
       data-input="${input}"
+      data-audio-input="${input}"
       data-mode="${mode}"
       aria-pressed="${isActive}">
       ${label}
@@ -835,6 +990,8 @@ function renderPanelButton(label, variant = "") {
 function createSwitcherAudioState(inputCount = 0) {
   return {
     sources: Object.fromEntries(Array.from({ length: inputCount }, (_, index) => [index + 1, "off"])),
+    faders: Object.fromEntries(Array.from({ length: inputCount }, (_, index) => [index + 1, 0])),
+    gains: Object.fromEntries(Array.from({ length: inputCount }, (_, index) => [index + 1, 0])),
     mics: {
       mic1: "off",
       mic2: "off"
@@ -848,10 +1005,18 @@ function ensureSwitcherAudioState(switcher) {
   }
 
   switcher.audio.sources ??= {};
+  if (!switcher.audio.faders && switcher.audio.gains) {
+    switcher.audio.faders = { ...switcher.audio.gains };
+    switcher.audio.gains = {};
+  }
+  switcher.audio.faders ??= {};
+  switcher.audio.gains ??= {};
   switcher.audio.mics ??= {};
 
   Array.from({ length: switcher.inputCount }, (_, index) => index + 1).forEach((input) => {
     switcher.audio.sources[input] ??= "off";
+    switcher.audio.faders[input] ??= 0;
+    switcher.audio.gains[input] ??= 0;
   });
   switcher.audio.mics.mic1 ??= "off";
   switcher.audio.mics.mic2 ??= "off";
@@ -865,7 +1030,13 @@ function setAudioSourceMode(switcherId, input, mode) {
   }
 
   ensureSwitcherAudioState(switcher);
-  switcher.audio.sources[input] = mode === "reset" ? "off" : mode;
+  if (mode === "reset") {
+    switcher.audio.faders[input] = 0;
+    switcher.audio.gains[input] = 0;
+  } else {
+    switcher.audio.sources[input] = mode;
+  }
+  showAudioMeter(switcherId, input);
   render();
 }
 
@@ -874,9 +1045,286 @@ function getSwitcherInputAudioMode(switcher, input) {
   return switcher.audio.sources[input] ?? "off";
 }
 
+function getSwitcherInputGain(switcher, input) {
+  ensureSwitcherAudioState(switcher);
+  return Number(switcher.audio.gains[input] ?? 0);
+}
+
+function getSwitcherInputFader(switcher, input) {
+  ensureSwitcherAudioState(switcher);
+  return Number(switcher.audio.faders[input] ?? 0);
+}
+
+function setSwitcherInputGain(switcher, input, gain) {
+  ensureSwitcherAudioState(switcher);
+  switcher.audio.gains[input] = clamp(Math.round(Number(gain) * 10) / 10, -20, 20);
+}
+
+function setSwitcherInputFader(switcher, input, fader) {
+  ensureSwitcherAudioState(switcher);
+  switcher.audio.faders[input] = clamp(Math.round(Number(fader) * 10) / 10, -60, 6);
+}
+
+function adjustAudioFader(switcherId, input, direction) {
+  const switcher = getNode(switcherId);
+
+  if (switcher?.type !== "switcher") {
+    return;
+  }
+
+  const delta = direction === "up" ? 0.1 : -0.1;
+  setSwitcherInputFader(switcher, input, getSwitcherInputFader(switcher, input) + delta);
+  showAudioMeter(switcherId, input, { autoHide: true });
+  render();
+}
+
+function adjustInputGain(switcherId, input, delta) {
+  const switcher = getNode(switcherId);
+
+  if (switcher?.type !== "switcher") {
+    return;
+  }
+
+  setSwitcherInputGain(switcher, input, getSwitcherInputGain(switcher, input) + delta);
+  showAudioMeter(switcherId, input, { autoHide: false });
+  renderAudioMeterPopover();
+}
+
+function startFaderHold(button) {
+  stopFaderHold();
+
+  gainHoldTimer = window.setTimeout(() => {
+    suppressNextGainClick = true;
+    adjustAudioFader(button.dataset.nodeId, Number(button.dataset.input), button.dataset.direction);
+    gainHoldInterval = window.setInterval(() => {
+      adjustAudioFader(button.dataset.nodeId, Number(button.dataset.input), button.dataset.direction);
+    }, GAIN_HOLD_INTERVAL_MS);
+  }, GAIN_HOLD_DELAY_MS);
+}
+
+function stopFaderHold() {
+  window.clearTimeout(gainHoldTimer);
+  window.clearInterval(gainHoldInterval);
+  gainHoldTimer = null;
+  gainHoldInterval = null;
+}
+
 function getSwitcherMicAudioMode(switcher, micId) {
   ensureSwitcherAudioState(switcher);
   return switcher.audio.mics[micId] ?? "off";
+}
+
+function showAudioMeter(switcherId, input, options = {}) {
+  const switcher = getNode(switcherId);
+
+  if (switcher?.type !== "switcher") {
+    return;
+  }
+
+  state.activeAudioMeter = {
+    switcherId,
+    input: Number(input)
+  };
+
+  window.clearTimeout(audioMeterTimer);
+  if (options.autoHide !== false) {
+    audioMeterTimer = window.setTimeout(() => {
+      state.activeAudioMeter = null;
+      render();
+    }, AUDIO_METER_HIDE_MS);
+  }
+}
+
+function showAudioMeterFromHover(switcherId, input) {
+  const nextMeter = {
+    switcherId,
+    input: Number(input)
+  };
+  const activeMeter = state.activeAudioMeter;
+  const isSameMeter = activeMeter
+    && activeMeter.switcherId === nextMeter.switcherId
+    && Number(activeMeter.input) === nextMeter.input;
+
+  window.clearTimeout(audioMeterHoverTimer);
+  window.clearTimeout(audioMeterSwitchTimer);
+
+  if (!activeMeter || isSameMeter) {
+    showAudioMeter(nextMeter.switcherId, nextMeter.input, { autoHide: false });
+    renderAudioMeterPopover();
+    return;
+  }
+
+  audioMeterSwitchTimer = window.setTimeout(() => {
+    showAudioMeter(nextMeter.switcherId, nextMeter.input, { autoHide: false });
+    renderAudioMeterPopover();
+  }, AUDIO_METER_SWITCH_DELAY_MS);
+}
+
+function cancelAudioMeterSwitch() {
+  window.clearTimeout(audioMeterSwitchTimer);
+  audioMeterSwitchTimer = null;
+}
+
+function hideAudioMeter(delay = 160) {
+  window.clearTimeout(audioMeterTimer);
+  window.clearTimeout(audioMeterHoverTimer);
+  cancelAudioMeterSwitch();
+  audioMeterHoverTimer = window.setTimeout(() => {
+    state.activeAudioMeter = null;
+    render();
+  }, delay);
+}
+
+function renderAudioMeterPopover() {
+  if (!audioMeterPopover) {
+    return;
+  }
+
+  const meter = state.activeAudioMeter;
+  const switcher = meter ? getNode(meter.switcherId) : null;
+
+  if (!meter || switcher?.type !== "switcher") {
+    audioMeterPopover.classList.add("is-hidden");
+    audioMeterPopover.innerHTML = "";
+    return;
+  }
+
+  ensureSwitcherAudioState(switcher);
+  const input = Number(meter.input);
+  const mode = getSwitcherInputAudioMode(switcher, input);
+  const source = getSwitcherInputSource(switcher, input);
+  const gain = getSwitcherInputGain(switcher, input);
+  const fader = getSwitcherInputFader(switcher, input);
+  const hasSignal = Boolean(source);
+  const audible = Boolean(source) && isSwitcherInputAudioLive(switcher, input);
+  const leftDb = getAudioMeterDb(input, gain, fader, 0, hasSignal);
+  const rightDb = getAudioMeterDb(input, gain, fader, 1, hasSignal);
+  const status = getAudioMeterStatusLabel(mode, audible, source);
+
+  audioMeterPopover.classList.toggle("is-muted", !audible);
+  audioMeterPopover.classList.remove("is-hidden");
+  audioMeterPopover.innerHTML = `
+    <div class="audio-meter-head">
+      <div>
+        <span>${switcher.title}</span>
+        <strong>${getSwitcherBusSourceLabel(input)} ${source ? source.shortName : "No Signal"}</strong>
+      </div>
+      <em>${mode.toUpperCase()}</em>
+    </div>
+    <div class="audio-meter-body">
+      ${renderAudioMeterStrip("L", leftDb, mode)}
+      ${renderAudioMeterStrip("R", rightDb, mode)}
+      <div class="audio-meter-readout">
+        <span>GAIN</span>
+        ${renderAudioGainControl(switcher, input)}
+        <span>FADER</span>
+        <strong>${formatSignedDb(fader)}</strong>
+        <small>${status}</small>
+      </div>
+    </div>
+  `;
+}
+
+function renderAudioMeterStrip(label, db, mode) {
+  const level = getAudioMeterPercent(db);
+  const levelRange = getAudioMeterDynamicRange(db);
+
+  return `
+    <div class="audio-meter-strip" style="--level: ${level}%; --level-low: ${levelRange.low}%; --level-high: ${levelRange.high}%">
+      <i class="audio-mode-bar ${getAudioModeBarClass(mode)}"></i>
+      <strong>${formatMeterDb(db)}</strong>
+      <div class="audio-meter-track">
+        <div class="audio-meter-scale" aria-hidden="true">
+          <span style="bottom: 100%">0</span>
+          <span style="bottom: 83.33%">-10</span>
+          <span style="bottom: 66.67%">-20</span>
+          <span style="bottom: 50%">-30</span>
+          <span style="bottom: 33.33%">-40</span>
+          <span style="bottom: 16.67%">-50</span>
+        </div>
+        <i></i>
+      </div>
+      <span>${label}</span>
+    </div>
+  `;
+}
+
+function getAudioModeBarClass(mode) {
+  if (mode === "on") {
+    return "is-on";
+  }
+
+  if (mode === "afv") {
+    return "is-afv";
+  }
+
+  return "is-off";
+}
+
+function getAudioMeterDb(input, gain, fader, channelOffset, hasSignal) {
+  if (!hasSignal) {
+    return -60;
+  }
+
+  const base = -29 + ((Number(input) * 7 + channelOffset * 5) % 13);
+  return clamp(base + gain + fader, -60, 0);
+}
+
+function getAudioMeterPercent(db) {
+  return clamp(((Number(db) + 60) / 60) * 100, 0, 100);
+}
+
+function getAudioMeterDynamicRange(db) {
+  const value = Number(db);
+
+  if (value <= -60) {
+    return { low: 0, high: 0 };
+  }
+
+  const varianceDb = clamp(Math.abs(value) * 0.15, 1.2, 6);
+  return {
+    low: getAudioMeterPercent(value - varianceDb),
+    high: getAudioMeterPercent(value + varianceDb)
+  };
+}
+
+function getAudioMeterStatusLabel(mode, audible, source) {
+  if (!source) {
+    return "Kein Eingangssignal";
+  }
+
+  if (audible) {
+    return "Im Mix hörbar";
+  }
+
+  if (mode === "afv") {
+    return "Signal vorhanden, AFV wartet";
+  }
+
+  if (mode === "off") {
+    return "Signal vorhanden, OFF";
+  }
+
+  return "Nicht im Mix";
+}
+
+function formatSignedDb(value) {
+  const number = Number(value);
+  return `${number >= 0 ? "+" : ""}${number.toFixed(1)} dB`;
+}
+
+function formatSignedValue(value) {
+  const number = Number(value);
+  return `${number >= 0 ? "+" : ""}${number.toFixed(1)}`;
+}
+
+function formatGain(gain) {
+  const value = Number(gain);
+  return `${value >= 0 ? "+" : ""}${value.toFixed(1)} dB`;
+}
+
+function formatMeterDb(db) {
+  return Number(db).toFixed(2);
 }
 
 function isSwitcherInputAudioLive(switcher, input) {
@@ -892,9 +1340,18 @@ function getAudioMarkerColor(seed) {
   return audioNoteColors[Math.abs(value) % audioNoteColors.length];
 }
 
+function getSourceAudioColor(source, fallbackSeed) {
+  return source?.sourceColor ?? getAudioMarkerColor(fallbackSeed);
+}
+
 function getSwitcherInputAudioMarker(switcher, input) {
   const mode = getSwitcherInputAudioMode(switcher, input);
   const fading = getActiveAudioFade(switcher.id, input);
+  const source = getSwitcherInputSource(switcher, input);
+
+  if (!source) {
+    return null;
+  }
 
   if (!isSwitcherInputAudioLive(switcher, input) && !fading) {
     return null;
@@ -903,7 +1360,7 @@ function getSwitcherInputAudioMarker(switcher, input) {
   return {
     id: `${switcher.id}-input-${input}`,
     label: `Audio ${input}`,
-    color: getAudioMarkerColor(input),
+    color: getSourceAudioColor(source, input),
     fading: Boolean(fading),
     muted: mode === "off"
   };
@@ -1130,6 +1587,11 @@ function renderTransitionPicture(fromSource, toSource, durationMs = 650) {
 }
 
 function renderSignalPicture(source) {
+  if (isDisplaySourceNode(source)) {
+    ensureSourceIdentity(source);
+    return renderSourcePreview(source);
+  }
+
   if (source.media) {
     return renderMediaSurface(source);
   }
@@ -1611,13 +2073,18 @@ function getConnectionLabel(connection) {
   return connection.signal;
 }
 
-function toggleCameraView(nodeId) {
-  const camera = getNode(nodeId);
+function cycleSourceView(nodeId) {
+  const node = getNode(nodeId);
 
-  if (camera?.type === "camera") {
-    camera.viewMode = camera.viewMode === "signal" ? "photo" : "signal";
-    render();
+  if (!isDisplaySourceNode(node)) {
+    return;
   }
+
+  const modes = getAvailableSourceViewModes(node);
+  const currentMode = normalizeSourceViewMode(node);
+  const currentIndex = modes.indexOf(currentMode);
+  node.viewMode = modes[(currentIndex + 1) % modes.length];
+  render();
 }
 
 function setRandomMedia(nodeId) {
@@ -1632,6 +2099,9 @@ function setRandomMedia(nodeId) {
     name: "Picsum Random",
     url: `https://picsum.photos/seed/${Date.now()}-${node.id}/960/540`
   };
+  if (isDisplaySourceNode(node)) {
+    node.viewMode = "media";
+  }
   render();
 }
 
@@ -1678,6 +2148,10 @@ async function setDroppedFileMedia(nodeId, file) {
       label: getFileLabel(file),
       name: file.name
     };
+  }
+
+  if (isDisplaySourceNode(node) && node.media?.kind !== "file") {
+    node.viewMode = "media";
   }
 
   render();
@@ -1976,6 +2450,8 @@ function createNodeClipboardSnapshot(node) {
     media: node.media ? { ...node.media } : node.media,
     audio: node.audio ? {
       sources: { ...node.audio.sources },
+      faders: { ...(node.audio.faders ?? {}) },
+      gains: { ...(node.audio.gains ?? {}) },
       mics: { ...node.audio.mics }
     } : node.audio,
     cutFlashing: false,
@@ -1999,6 +2475,8 @@ function createNodeFromClipboardSnapshot(snapshot) {
     media: snapshot.media ? { ...snapshot.media } : snapshot.media,
     audio: snapshot.audio ? {
       sources: { ...snapshot.audio.sources },
+      faders: { ...(snapshot.audio.faders ?? {}) },
+      gains: { ...(snapshot.audio.gains ?? {}) },
       mics: { ...snapshot.audio.mics }
     } : snapshot.audio,
     cutFlashing: false,
@@ -2630,6 +3108,14 @@ deviceLayer.addEventListener("click", (event) => {
     setAudioSourceMode(actionTarget.dataset.nodeId, Number(actionTarget.dataset.input), actionTarget.dataset.mode);
   }
 
+  if (action === "adjust-audio-fader") {
+    if (suppressNextGainClick) {
+      suppressNextGainClick = false;
+      return;
+    }
+    adjustAudioFader(actionTarget.dataset.nodeId, Number(actionTarget.dataset.input), actionTarget.dataset.direction);
+  }
+
   if (action === "set-mic-audio") {
     setMicAudioMode(actionTarget.dataset.nodeId, actionTarget.dataset.mic, actionTarget.dataset.mode);
   }
@@ -2654,8 +3140,8 @@ deviceLayer.addEventListener("click", (event) => {
     setPipPreset(actionTarget.dataset.nodeId, actionTarget.dataset.pipPreset);
   }
 
-  if (action === "toggle-camera-view") {
-    toggleCameraView(actionTarget.dataset.nodeId);
+  if (action === "cycle-source-view") {
+    cycleSourceView(actionTarget.dataset.nodeId);
   }
 
   if (action === "random-media") {
@@ -2680,6 +3166,56 @@ deviceLayer.addEventListener("click", (event) => {
 
   if (action === "edit-node") {
     openEditGear(actionTarget.dataset.nodeId);
+  }
+});
+
+deviceLayer.addEventListener("pointerover", (event) => {
+  const audioTarget = event.target.closest("[data-audio-input][data-node-id]");
+
+  if (!audioTarget || !deviceLayer.contains(audioTarget)) {
+    return;
+  }
+
+  showAudioMeterFromHover(audioTarget.dataset.nodeId, Number(audioTarget.dataset.audioInput));
+});
+
+deviceLayer.addEventListener("pointerout", (event) => {
+  const audioTarget = event.target.closest("[data-audio-input][data-node-id]");
+
+  if (!audioTarget) {
+    return;
+  }
+
+  if (audioTarget.contains(event.relatedTarget) || audioMeterPopover?.contains(event.relatedTarget)) {
+    return;
+  }
+
+  cancelAudioMeterSwitch();
+  hideAudioMeter();
+});
+
+audioMeterPopover?.addEventListener("pointerover", () => {
+  window.clearTimeout(audioMeterHoverTimer);
+  cancelAudioMeterSwitch();
+});
+
+audioMeterPopover?.addEventListener("pointerout", (event) => {
+  if (audioMeterPopover.contains(event.relatedTarget)) {
+    return;
+  }
+
+  hideAudioMeter();
+});
+
+audioMeterPopover?.addEventListener("pointerdown", (event) => {
+  if (state.readOnly) {
+    return;
+  }
+
+  const inputGainControl = event.target.closest("[data-action='adjust-input-gain']");
+
+  if (inputGainControl) {
+    startInputGainDrag(event, inputGainControl);
   }
 });
 
@@ -2725,6 +3261,20 @@ deviceLayer.addEventListener("drop", (event) => {
 
 deviceLayer.addEventListener("pointerdown", (event) => {
   if (state.readOnly) {
+    return;
+  }
+
+  const inputGainControl = event.target.closest("[data-action='adjust-input-gain']");
+
+  if (inputGainControl) {
+    startInputGainDrag(event, inputGainControl);
+    return;
+  }
+
+  const gainButton = event.target.closest("[data-action='adjust-audio-fader']");
+
+  if (gainButton) {
+    startFaderHold(gainButton);
     return;
   }
 
@@ -2794,6 +3344,64 @@ deviceLayer.addEventListener("pointermove", (event) => {
 
 deviceLayer.addEventListener("pointerup", endDrag);
 deviceLayer.addEventListener("pointercancel", endDrag);
+deviceLayer.addEventListener("pointerleave", stopFaderHold);
+document.addEventListener("pointermove", (event) => {
+  if (activeGainDrag && activeGainDrag.pointerId === event.pointerId) {
+    updateInputGainDrag(event);
+  }
+});
+document.addEventListener("pointerup", (event) => {
+  stopFaderHold();
+  endInputGainDrag(event);
+});
+document.addEventListener("pointercancel", (event) => {
+  stopFaderHold();
+  endInputGainDrag(event);
+});
+
+function startInputGainDrag(event, control) {
+  const switcher = getNode(control.dataset.nodeId);
+
+  if (switcher?.type !== "switcher") {
+    return;
+  }
+
+  const input = Number(control.dataset.input);
+  activeGainDrag = {
+    pointerId: event.pointerId,
+    control,
+    switcherId: switcher.id,
+    input,
+    startX: event.clientX,
+    startGain: getSwitcherInputGain(switcher, input)
+  };
+  control.setPointerCapture(event.pointerId);
+  showAudioMeter(switcher.id, input, { autoHide: false });
+  renderAudioMeterPopover();
+}
+
+function updateInputGainDrag(event) {
+  const switcher = getNode(activeGainDrag.switcherId);
+
+  if (switcher?.type !== "switcher") {
+    return;
+  }
+
+  const delta = Math.round((event.clientX - activeGainDrag.startX) / 4) * 0.1;
+  setSwitcherInputGain(switcher, activeGainDrag.input, activeGainDrag.startGain + delta);
+  showAudioMeter(switcher.id, activeGainDrag.input, { autoHide: false });
+  renderAudioMeterPopover();
+}
+
+function endInputGainDrag(event) {
+  if (!activeGainDrag || activeGainDrag.pointerId !== event.pointerId) {
+    return;
+  }
+
+  activeGainDrag.control.releasePointerCapture?.(event.pointerId);
+  activeGainDrag = null;
+  hideAudioMeter(600);
+}
 
 function endDrag(event) {
   if (!activeDrag || activeDrag.pointerId !== event.pointerId) {
