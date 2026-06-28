@@ -144,7 +144,7 @@ function makeAtemSdiTemplate(title, inputCount, sdiOutputs, usbOutputs, hasHeadp
     sdiOutputs,
     usbOutputs,
     hasHeadphones,
-    width: inputCount > 4 ? 1894 : 700
+    width: inputCount > 4 ? 1894 : 1140
   });
 }
 
@@ -671,7 +671,8 @@ function renderSwitcherPanel(switcher) {
 }
 
 function isAtemMiniProPanel(switcher) {
-  return switcher.inputCount <= 4 && String(switcher.title ?? "").includes("ATEM Mini");
+  const title = String(switcher.title ?? "");
+  return switcher.inputCount <= 4 && (title.includes("ATEM Mini") || title.includes("ATEM SDI"));
 }
 
 function renderMiniSwitcherPanel(switcher) {
