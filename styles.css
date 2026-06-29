@@ -746,22 +746,49 @@ body.is-read-only #openGearLibrary {
   display: none;
 }
 
+.selection-marquee {
+  position: absolute;
+  z-index: 2;
+  border: 2px solid rgba(76, 201, 240, 0.95);
+  border-radius: 6px;
+  background: rgba(76, 201, 240, 0.14);
+  box-shadow: 0 0 18px rgba(76, 201, 240, 0.24);
+  pointer-events: none;
+}
+
+.selection-marquee.is-hidden {
+  display: none;
+}
+
 .cable-layer,
 .device-layer {
   position: absolute;
   inset: 0;
 }
 
+.device-layer {
+  pointer-events: none;
+}
+
 .cable-layer {
   width: 100%;
   height: 100%;
-  pointer-events: none;
+  pointer-events: auto;
+}
+
+.cable-hit-area {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 18;
+  cursor: pointer;
+  pointer-events: stroke;
 }
 
 .cable-layer path {
   fill: none;
   stroke: rgba(127, 141, 153, 0.82);
   stroke-width: 3;
+  pointer-events: none;
 }
 
 .cable-layer path.is-preview {
@@ -774,10 +801,22 @@ body.is-read-only #openGearLibrary {
   stroke-width: 5;
 }
 
+.cable-layer path.cable-hit-area {
+  stroke: transparent;
+  stroke-width: 18;
+  pointer-events: stroke;
+}
+
+.cable-layer path.is-selected {
+  filter: drop-shadow(0 0 5px rgba(76, 201, 240, 0.95));
+  stroke-width: 5;
+}
+
 .cable-layer text {
   fill: var(--muted);
   font-size: 12px;
   font-weight: 800;
+  pointer-events: none;
 }
 
 .cable-layer .audio-note {
@@ -807,6 +846,7 @@ body.is-read-only #openGearLibrary {
 .node {
   position: absolute;
   width: 270px;
+  pointer-events: auto;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
   background: var(--panel);
@@ -2150,10 +2190,10 @@ body.is-read-only #openGearLibrary {
   position: absolute;
   z-index: 3;
   display: grid;
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
   place-items: center;
-  border: 2px solid var(--socket-color, rgba(255, 255, 255, 0.8));
+  border: 3px solid var(--socket-color, rgba(255, 255, 255, 0.8));
   border-radius: 50%;
   background: #0c1014;
   cursor: crosshair;
@@ -2162,8 +2202,8 @@ body.is-read-only #openGearLibrary {
 
 .socket::after {
   content: "";
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--muted);
 }

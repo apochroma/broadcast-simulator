@@ -194,6 +194,8 @@ const AUDIO_METER_HIDE_MS = 1800;
 const AUDIO_METER_SWITCH_DELAY_MS = 1200;
 const GAIN_HOLD_DELAY_MS = 360;
 const GAIN_HOLD_INTERVAL_MS = 70;
+const CABLE_SNAP_DISTANCE_PX = 34;
+const UNDO_HISTORY_LIMIT = 80;
 const audioNoteColors = ["#d65aff", "#ff4f6a", "#55e6a5", "#ffd166", "#60d8ff", "#f78c3f"];
 
 const state = {
@@ -206,6 +208,7 @@ const state = {
   readOnly: false,
   selectedNodeId: null,
   selectedNodeIds: [],
+  selectedConnectionIndex: null,
   selectedSocket: null,
   nodes: [],
   connections: []
@@ -216,6 +219,7 @@ const workspaceScaleShell = document.querySelector("#workspaceScaleShell");
 const workspace = document.querySelector("#workspace");
 const cableLayer = document.querySelector("#cableLayer");
 const deviceLayer = document.querySelector("#deviceLayer");
+const selectionMarquee = document.querySelector("#selectionMarquee");
 const audioMeterPopover = document.querySelector("#audioMeterPopover");
 const emptyState = document.querySelector("#emptyState");
 const programStatus = document.querySelector("#programStatus");
@@ -235,6 +239,8 @@ let suppressNextNodeClick = false;
 let editDraft = null;
 let gearFilter = "";
 let copiedNodeSnapshot = null;
+let undoStack = [];
+let isRestoringUndo = false;
 let audioMeterTimer = null;
 let audioMeterHoverTimer = null;
 let audioMeterSwitchTimer = null;
@@ -273,6 +279,8 @@ function makeNumberedPorts(prefix, count, signal, labelPrefix, firstTop, step) {
 function addGear(type, customTemplate) {
   const resolvedType = legacyGearAliases[type] ?? type;
   const template = customTemplate ?? gearLibrary[resolvedType];
+
+  recordUndoSnapshot();
   const countOfType = state.nodes.filter((node) => node.type === template.type).length + 1;
   const position = getSpawnPosition(template.type, countOfType, template.width);
   const id = `${template.type}-${state.nextId}`;
@@ -2654,7 +2662,9 @@ function renderLines() {
       getConnectionClass(connection),
       connection.signal,
       getConnectionAudioMarkers(connection),
-      `cable-path-${index}`
+      `cable-path-${index}`,
+      index,
+      state.selectedConnectionIndex === index
     );
   });
 
@@ -2718,8 +2728,9 @@ function getCablePath(start, end) {
   };
 }
 
-function addCable(start, end, label, className, signal, audioMarkers = [], pathId = "cable-path") {
+function addCable(start, end, label, className, signal, audioMarkers = [], pathId = "cable-path", connectionIndex = null, selected = false) {
   const cablePath = getCablePath(start, end);
+  const hitPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
   const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
   const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
 
@@ -2729,11 +2740,26 @@ function addCable(start, end, label, className, signal, audioMarkers = [], pathI
   if (className) {
     path.classList.add(className);
   }
+  if (selected) {
+    path.classList.add("is-selected");
+  }
+
+  if (connectionIndex !== null) {
+    hitPath.setAttribute("d", cablePath.d);
+    hitPath.classList.add("cable-hit-area");
+    if (selected) {
+      hitPath.classList.add("is-selected");
+    }
+    hitPath.dataset.connectionIndex = String(connectionIndex);
+  }
 
   text.setAttribute("x", String(cablePath.labelX));
   text.setAttribute("y", String(cablePath.labelY));
   text.textContent = label;
 
+  if (connectionIndex !== null) {
+    cableLayer.append(hitPath);
+  }
   cableLayer.append(path, text);
 
   audioMarkers.forEach((marker, index) => {
@@ -2847,6 +2873,7 @@ function cycleSourceView(nodeId) {
   const modes = getAvailableSourceViewModes(node);
   const currentMode = normalizeSourceViewMode(node);
   const currentIndex = modes.indexOf(currentMode);
+
   node.viewMode = modes[(currentIndex + 1) % modes.length];
   render();
 }
@@ -3154,6 +3181,7 @@ function connectSockets(firstSocket, secondSocket) {
     return;
   }
 
+  recordUndoSnapshot();
   state.connections = state.connections.filter((connection) => !(
     (connection.from.nodeId === from.nodeId && connection.from.portId === from.portId)
     || (connection.to.nodeId === to.nodeId && connection.to.portId === to.portId)
@@ -3164,6 +3192,7 @@ function connectSockets(firstSocket, secondSocket) {
     to: { nodeId: to.nodeId, portId: to.portId }
   });
   state.selectedSocket = null;
+  state.selectedConnectionIndex = null;
   render();
 }
 
@@ -3188,13 +3217,48 @@ function setSelectedNodes(nodeIds, primaryNodeId = nodeIds[0] ?? null) {
   state.selectedNodeId = primaryNodeId && uniqueIds.includes(primaryNodeId)
     ? primaryNodeId
     : uniqueIds[0] ?? null;
+  state.selectedConnectionIndex = null;
   state.selectedSocket = null;
+}
+
+function addNodeToSelection(nodeId) {
+  setSelectedNodes([...getSelectedNodeIds(), nodeId], nodeId);
+}
+
+function removeNodeFromSelection(nodeId) {
+  const nextSelection = getSelectedNodeIds().filter((selectedNodeId) => selectedNodeId !== nodeId);
+
+  setSelectedNodes(nextSelection, nextSelection[0] ?? null);
 }
 
 function clearSelection() {
   state.selectedNodeId = null;
   state.selectedNodeIds = [];
+  state.selectedConnectionIndex = null;
   state.selectedSocket = null;
+}
+
+function selectConnection(connectionIndex) {
+  if (!Number.isInteger(connectionIndex) || !state.connections[connectionIndex]) {
+    return;
+  }
+
+  state.selectedNodeId = null;
+  state.selectedNodeIds = [];
+  state.selectedSocket = null;
+  state.selectedConnectionIndex = connectionIndex;
+  render();
+}
+
+function removeConnection(connectionIndex) {
+  if (!Number.isInteger(connectionIndex) || !state.connections[connectionIndex]) {
+    return;
+  }
+
+  recordUndoSnapshot();
+  state.connections.splice(connectionIndex, 1);
+  state.selectedConnectionIndex = null;
+  render();
 }
 
 function selectAllNodes() {
@@ -3230,6 +3294,7 @@ function pasteCopiedNode() {
     return;
   }
 
+  recordUndoSnapshot();
   const node = createNodeFromClipboardSnapshot(copiedNodeSnapshot);
   state.nodes.push(node);
   state.nextId += 1;
@@ -3342,6 +3407,7 @@ function removeNodes(nodeIds) {
     return;
   }
 
+  recordUndoSnapshot();
   state.nodes
     .filter((node) => removeIds.has(node.id))
     .forEach(revokeNodeMediaUrl);
@@ -3355,6 +3421,7 @@ function removeNodes(nodeIds) {
     state.activeSwitcherId = getActiveSwitcher()?.id ?? null;
   }
 
+  state.selectedConnectionIndex = null;
   state.selectedNodeIds = getSelectedNodeIds().filter((nodeId) => !removeIds.has(nodeId));
   state.selectedNodeId = state.selectedNodeIds[0] ?? null;
   render();
@@ -3664,6 +3731,7 @@ function saveEditGear() {
   const inputIds = new Set(editDraft.inputs.map((port) => port.id));
   const outputIds = new Set(editDraft.outputs.map((port) => port.id));
 
+  recordUndoSnapshot();
   node.title = editGearName.value.trim() || node.title;
   node.shortName = node.type === "camera" ? node.shortName : getShortName(node.title);
   node.inputs = editDraft.inputs.map((port) => ({ ...port }));
@@ -3727,6 +3795,35 @@ function serializeSetup() {
   };
 }
 
+function recordUndoSnapshot() {
+  if (state.readOnly || isRestoringUndo) {
+    return;
+  }
+
+  const snapshot = JSON.stringify(serializeSetup());
+
+  if (undoStack.at(-1) === snapshot) {
+    return;
+  }
+
+  undoStack.push(snapshot);
+  if (undoStack.length > UNDO_HISTORY_LIMIT) {
+    undoStack.shift();
+  }
+}
+
+function undoLastChange() {
+  if (state.readOnly || !undoStack.length) {
+    return;
+  }
+
+  const snapshot = undoStack.pop();
+
+  isRestoringUndo = true;
+  loadSetup(JSON.parse(snapshot), state.readOnly);
+  isRestoringUndo = false;
+}
+
 function loadSetup(setup, readOnly = state.readOnly) {
   state.nextId = setup.nextId ?? 1;
   state.zoom = setup.zoom ?? 1;
@@ -3755,6 +3852,9 @@ function loadSetup(setup, readOnly = state.readOnly) {
   state.connections = (setup.connections ?? []).map((connection) => ({ ...connection }));
   state.readOnly = readOnly;
   clearSelection();
+  if (!isRestoringUndo) {
+    undoStack = [];
+  }
   render();
 }
 
@@ -3925,6 +4025,17 @@ deviceLayer.addEventListener("click", (event) => {
     return;
   }
 
+  if (!state.readOnly && clickedNode && (event.shiftKey || event.altKey)) {
+    if (event.altKey) {
+      removeNodeFromSelection(clickedNode.dataset.nodeId);
+    } else {
+      addNodeToSelection(clickedNode.dataset.nodeId);
+    }
+    render();
+    event.preventDefault();
+    return;
+  }
+
   if (!state.readOnly && clickedNode) {
     setSelectedNodes([clickedNode.dataset.nodeId], clickedNode.dataset.nodeId);
   }
@@ -4073,6 +4184,58 @@ deviceLayer.addEventListener("click", (event) => {
   }
 });
 
+cableLayer.addEventListener("dblclick", (event) => {
+  if (state.readOnly) {
+    return;
+  }
+
+  const cableTarget = event.target.closest("[data-connection-index]");
+
+  if (!cableTarget) {
+    return;
+  }
+
+  const connectionIndex = Number(cableTarget.dataset.connectionIndex);
+
+  if (!Number.isInteger(connectionIndex)) {
+    return;
+  }
+
+  removeConnection(connectionIndex);
+});
+
+cableLayer.addEventListener("click", (event) => {
+  if (state.readOnly) {
+    return;
+  }
+
+  const cableTarget = event.target.closest("[data-connection-index]");
+
+  if (!cableTarget) {
+    return;
+  }
+
+  selectConnection(Number(cableTarget.dataset.connectionIndex));
+});
+
+cableLayer.addEventListener("pointerdown", (event) => {
+  if (state.readOnly) {
+    return;
+  }
+
+  if (event.target.closest("[data-connection-index]")) {
+    event.stopPropagation();
+    return;
+  }
+
+  if (event.target !== cableLayer) {
+    return;
+  }
+
+  event.stopPropagation();
+  startMarqueeDrag(event);
+});
+
 deviceLayer.addEventListener("pointerover", (event) => {
   const audioTarget = event.target.closest("[data-audio-input][data-node-id]");
 
@@ -4195,20 +4358,11 @@ workspace.addEventListener("pointerdown", (event) => {
     return;
   }
 
-  if (getSelectedNodeIds().length || state.selectedSocket) {
-    clearSelection();
-    render();
-  }
+  startMarqueeDrag(event);
 });
 
 deviceLayer.addEventListener("pointerdown", (event) => {
   if (state.readOnly) {
-    return;
-  }
-
-  if (!event.target.closest("article.node") && getSelectedNodeIds().length) {
-    clearSelection();
-    render();
     return;
   }
 
@@ -4255,6 +4409,10 @@ deviceLayer.addEventListener("pointerdown", (event) => {
   const node = event.target.closest("[data-node-id]");
 
   if (!handle || !node) {
+    return;
+  }
+
+  if (event.shiftKey || event.altKey) {
     return;
   }
 
@@ -4320,7 +4478,10 @@ deviceLayer.addEventListener("pointermove", (event) => {
   }
 
   if (activeDrag.type === "cable") {
-    activeDrag.current = getWorkspacePoint(event);
+    const snapTarget = getCableSnapTarget(event, activeDrag.from);
+
+    activeDrag.snapTarget = snapTarget?.socket ?? null;
+    activeDrag.current = snapTarget?.anchor ?? getWorkspacePoint(event);
     renderLines();
     return;
   }
@@ -4330,7 +4491,11 @@ deviceLayer.addEventListener("pointermove", (event) => {
   const dx = clamp(requestedDx, -activeDrag.bounds.minX, WORLD_WIDTH - activeDrag.bounds.maxX);
   const dy = clamp(requestedDy, -activeDrag.bounds.minY, WORLD_HEIGHT - activeDrag.bounds.maxY);
 
-  activeDrag.moved = activeDrag.moved || Math.abs(requestedDx) > 1 || Math.abs(requestedDy) > 1;
+  const hasMoved = Math.abs(requestedDx) > 1 || Math.abs(requestedDy) > 1;
+  if (hasMoved && !activeDrag.moved) {
+    recordUndoSnapshot();
+  }
+  activeDrag.moved = activeDrag.moved || hasMoved;
   activeDrag.nodes.forEach((draggedNode) => {
     const nextX = draggedNode.originX + dx;
     const nextY = draggedNode.originY + dy;
@@ -4345,6 +4510,11 @@ deviceLayer.addEventListener("pointerup", endDrag);
 deviceLayer.addEventListener("pointercancel", endDrag);
 deviceLayer.addEventListener("pointerleave", stopFaderHold);
 document.addEventListener("pointermove", (event) => {
+  if (activeDrag?.type === "marquee" && activeDrag.pointerId === event.pointerId) {
+    updateMarqueeDrag(event);
+    return;
+  }
+
   if (activeGainDrag && activeGainDrag.pointerId === event.pointerId) {
     updateInputGainDrag(event);
   }
@@ -4357,11 +4527,13 @@ document.addEventListener("pointerup", (event) => {
   stopFaderHold();
   endInputGainDrag(event);
   endChannelFaderDrag(event);
+  endDrag(event);
 });
 document.addEventListener("pointercancel", (event) => {
   stopFaderHold();
   endInputGainDrag(event);
   endChannelFaderDrag(event);
+  endDrag(event);
 });
 
 function startChannelFaderDrag(event, control) {
@@ -4467,8 +4639,118 @@ function endInputGainDrag(event) {
   hideAudioMeter(600);
 }
 
+function startMarqueeDrag(event) {
+  const start = getWorkspacePoint(event);
+
+  event.preventDefault();
+  event.currentTarget.setPointerCapture?.(event.pointerId);
+  activeDrag = {
+    type: "marquee",
+    pointerId: event.pointerId,
+    captureTarget: event.currentTarget,
+    start,
+    current: start,
+    moved: false
+  };
+  updateSelectionMarquee(start, start);
+}
+
+function updateMarqueeDrag(event) {
+  const current = getWorkspacePoint(event);
+
+  activeDrag.current = current;
+  activeDrag.moved = activeDrag.moved
+    || Math.abs(current.x - activeDrag.start.x) > 6 / state.zoom
+    || Math.abs(current.y - activeDrag.start.y) > 6 / state.zoom;
+  updateSelectionMarquee(activeDrag.start, current);
+
+  if (activeDrag.moved) {
+    const selectedIds = getNodesInRect(getRectFromPoints(activeDrag.start, current));
+    setSelectedNodes(selectedIds, selectedIds[0] ?? null);
+    renderDeviceSelectionClasses();
+  }
+}
+
+function updateSelectionMarquee(start, end) {
+  const rect = getRectFromPoints(start, end);
+
+  selectionMarquee.classList.remove("is-hidden");
+  selectionMarquee.style.transform = `translate(${rect.left}px, ${rect.top}px)`;
+  selectionMarquee.style.width = `${rect.width}px`;
+  selectionMarquee.style.height = `${rect.height}px`;
+}
+
+function hideSelectionMarquee() {
+  selectionMarquee.classList.add("is-hidden");
+  selectionMarquee.style.width = "0";
+  selectionMarquee.style.height = "0";
+}
+
+function getRectFromPoints(start, end) {
+  const left = Math.min(start.x, end.x);
+  const top = Math.min(start.y, end.y);
+  const right = Math.max(start.x, end.x);
+  const bottom = Math.max(start.y, end.y);
+
+  return {
+    left,
+    top,
+    right,
+    bottom,
+    width: right - left,
+    height: bottom - top
+  };
+}
+
+function getNodesInRect(selectionRect) {
+  return state.nodes
+    .filter((node) => {
+      const element = deviceLayer.querySelector(`article.node[data-node-id="${node.id}"]`);
+      const width = (element?.getBoundingClientRect().width ?? node.width) / state.zoom;
+      const height = (element?.getBoundingClientRect().height ?? 220) / state.zoom;
+      const nodeRect = {
+        left: node.position.x,
+        top: node.position.y,
+        right: node.position.x + width,
+        bottom: node.position.y + height
+      };
+
+      return selectionRect.left <= nodeRect.right
+        && selectionRect.right >= nodeRect.left
+        && selectionRect.top <= nodeRect.bottom
+        && selectionRect.bottom >= nodeRect.top;
+    })
+    .map((node) => node.id);
+}
+
+function renderDeviceSelectionClasses() {
+  const selectedIds = new Set(getSelectedNodeIds());
+
+  deviceLayer.querySelectorAll("article.node").forEach((nodeElement) => {
+    nodeElement.classList.toggle("is-selected", selectedIds.has(nodeElement.dataset.nodeId));
+  });
+}
+
 function endDrag(event) {
   if (!activeDrag || activeDrag.pointerId !== event.pointerId) {
+    return;
+  }
+
+  if (activeDrag.type === "marquee") {
+    const wasMoved = activeDrag.moved;
+
+    hideSelectionMarquee();
+    try {
+      activeDrag.captureTarget?.releasePointerCapture?.(event.pointerId);
+    } catch {
+      // Pointer capture may already be released by the browser.
+    }
+    activeDrag = null;
+
+    if (!wasMoved) {
+      clearSelection();
+    }
+    render();
     return;
   }
 
@@ -4485,15 +4767,12 @@ function endDrag(event) {
 }
 
 function startCableDrag(event, socketButton) {
-  if (socketButton.dataset.direction !== "output") {
-    return;
-  }
-
   const workspaceRect = workspace.getBoundingClientRect();
   const start = getSocketAnchor(socketButton, workspaceRect);
 
   socketButton.setPointerCapture(event.pointerId);
   state.selectedSocket = null;
+  state.selectedConnectionIndex = null;
   activeDrag = {
     type: "cable",
     pointerId: event.pointerId,
@@ -4507,12 +4786,13 @@ function startCableDrag(event, socketButton) {
 
 function endCableDrag(event) {
   const cableDrag = activeDrag;
-  const dropTarget = document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-action='socket']");
+  const dropTarget = cableDrag.snapTarget
+    ?? document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-action='socket']");
 
   activeDrag = null;
   suppressNextSocketClick = true;
 
-  if (dropTarget?.dataset.direction === "input") {
+  if (dropTarget?.dataset.direction && dropTarget.dataset.direction !== cableDrag.from.direction) {
     connectSockets(cableDrag.from, getSocketData(dropTarget));
   } else {
     render();
@@ -4521,6 +4801,41 @@ function endCableDrag(event) {
   if (cableDrag.socketButton.hasPointerCapture(event.pointerId)) {
     cableDrag.socketButton.releasePointerCapture(event.pointerId);
   }
+}
+
+function getCableSnapTarget(event, fromSocket) {
+  const workspaceRect = workspace.getBoundingClientRect();
+  const pointer = { x: event.clientX, y: event.clientY };
+  const oppositeDirection = fromSocket.direction === "output" ? "input" : "output";
+  const candidates = [...deviceLayer.querySelectorAll(`[data-action='socket'][data-direction='${oppositeDirection}']`)];
+  let nearest = null;
+
+  candidates.forEach((socketElement) => {
+    const socket = getSocketData(socketElement);
+
+    if (!isValidConnection(fromSocket, socket) && !isValidConnection(socket, fromSocket)) {
+      return;
+    }
+
+    const rect = socketElement.getBoundingClientRect();
+    const center = {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2
+    };
+    const distance = Math.hypot(pointer.x - center.x, pointer.y - center.y);
+
+    if (distance > CABLE_SNAP_DISTANCE_PX || (nearest && distance >= nearest.distance)) {
+      return;
+    }
+
+    nearest = {
+      distance,
+      socket: socketElement,
+      anchor: getSocketAnchor(socketElement, workspaceRect)
+    };
+  });
+
+  return nearest;
 }
 
 function getSocketData(socketButton) {
@@ -4607,6 +4922,9 @@ document.addEventListener("keydown", (event) => {
     if (!state.readOnly && selectedNodeIds.length) {
       removeNodes(selectedNodeIds);
       event.preventDefault();
+    } else if (!state.readOnly && state.selectedConnectionIndex !== null) {
+      removeConnection(state.selectedConnectionIndex);
+      event.preventDefault();
     }
     return;
   }
@@ -4628,6 +4946,22 @@ document.addEventListener("keydown", (event) => {
 
   if (event.key.toLowerCase() === "v") {
     pasteCopiedNode();
+    event.preventDefault();
+  }
+
+  if (event.key.toLowerCase() === "z") {
+    undoLastChange();
+    event.preventDefault();
+  }
+
+  if (event.key.toLowerCase() === "x") {
+    const selectedNodeIds = getSelectedNodeIds();
+
+    if (selectedNodeIds.length) {
+      removeNodes(selectedNodeIds);
+    } else if (state.selectedConnectionIndex !== null) {
+      removeConnection(state.selectedConnectionIndex);
+    }
     event.preventDefault();
   }
 
