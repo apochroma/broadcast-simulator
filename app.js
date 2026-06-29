@@ -205,6 +205,7 @@ const state = {
   audioFades: [],
   readOnly: false,
   selectedNodeId: null,
+  selectedNodeIds: [],
   selectedSocket: null,
   nodes: [],
   connections: []
@@ -230,6 +231,7 @@ const editPortList = document.querySelector("#editPortList");
 
 let activeDrag = null;
 let suppressNextSocketClick = false;
+let suppressNextNodeClick = false;
 let editDraft = null;
 let gearFilter = "";
 let copiedNodeSnapshot = null;
@@ -304,6 +306,7 @@ function addGear(type, customTemplate) {
 
   state.nextId += 1;
   state.nodes.push(node);
+  setSelectedNodes([node.id], node.id);
 
   if (node.type === "switcher") {
     state.activeSwitcherId = node.id;
@@ -381,7 +384,7 @@ function renderNode(node) {
     node.isTransitioning ? "is-transitioning" : "",
     node.isFadingToBlack ? "is-fading-to-black" : "",
     node.cutFlashing ? "is-cut-flashing" : "",
-    state.selectedNodeId === node.id ? "is-selected" : "",
+    isNodeSelected(node.id) ? "is-selected" : "",
     programSource?.id === node.id ? "is-program" : "",
     previewSource?.id === node.id ? "is-preview" : ""
   ].filter(Boolean).join(" ");
@@ -3164,13 +3167,51 @@ function connectSockets(firstSocket, secondSocket) {
   render();
 }
 
-function selectNode(nodeId) {
-  if (state.readOnly || state.selectedNodeId === nodeId) {
+function getSelectedNodeIds() {
+  const selectedIds = state.selectedNodeIds?.length
+    ? state.selectedNodeIds
+    : state.selectedNodeId ? [state.selectedNodeId] : [];
+  const existingIds = new Set(state.nodes.map((node) => node.id));
+
+  return selectedIds.filter((nodeId) => existingIds.has(nodeId));
+}
+
+function isNodeSelected(nodeId) {
+  return getSelectedNodeIds().includes(nodeId);
+}
+
+function setSelectedNodes(nodeIds, primaryNodeId = nodeIds[0] ?? null) {
+  const existingIds = new Set(state.nodes.map((node) => node.id));
+  const uniqueIds = [...new Set(nodeIds)].filter((nodeId) => existingIds.has(nodeId));
+
+  state.selectedNodeIds = uniqueIds;
+  state.selectedNodeId = primaryNodeId && uniqueIds.includes(primaryNodeId)
+    ? primaryNodeId
+    : uniqueIds[0] ?? null;
+  state.selectedSocket = null;
+}
+
+function clearSelection() {
+  state.selectedNodeId = null;
+  state.selectedNodeIds = [];
+  state.selectedSocket = null;
+}
+
+function selectAllNodes() {
+  if (state.readOnly) {
     return;
   }
 
-  state.selectedNodeId = nodeId;
-  state.selectedSocket = null;
+  setSelectedNodes(state.nodes.map((node) => node.id), state.nodes[0]?.id ?? null);
+  render();
+}
+
+function selectNode(nodeId) {
+  if (state.readOnly) {
+    return;
+  }
+
+  setSelectedNodes([nodeId], nodeId);
   render();
 }
 
@@ -3192,8 +3233,7 @@ function pasteCopiedNode() {
   const node = createNodeFromClipboardSnapshot(copiedNodeSnapshot);
   state.nodes.push(node);
   state.nextId += 1;
-  state.selectedNodeId = node.id;
-  state.selectedSocket = null;
+  setSelectedNodes([node.id], node.id);
 
   if (node.type === "switcher" && !state.activeSwitcherId) {
     state.activeSwitcherId = node.id;
@@ -3292,24 +3332,31 @@ function isValidConnection(from, to) {
 }
 
 function removeNode(nodeId) {
-  const removedNode = getNode(nodeId);
-  if (removedNode) {
-    revokeNodeMediaUrl(removedNode);
+  removeNodes([nodeId]);
+}
+
+function removeNodes(nodeIds) {
+  const removeIds = new Set(nodeIds);
+
+  if (!removeIds.size) {
+    return;
   }
 
-  state.nodes = state.nodes.filter((node) => node.id !== nodeId);
+  state.nodes
+    .filter((node) => removeIds.has(node.id))
+    .forEach(revokeNodeMediaUrl);
+
+  state.nodes = state.nodes.filter((node) => !removeIds.has(node.id));
   state.connections = state.connections.filter((connection) => (
-    connection.from.nodeId !== nodeId && connection.to.nodeId !== nodeId
+    !removeIds.has(connection.from.nodeId) && !removeIds.has(connection.to.nodeId)
   ));
 
-  if (state.activeSwitcherId === nodeId) {
+  if (removeIds.has(state.activeSwitcherId)) {
     state.activeSwitcherId = getActiveSwitcher()?.id ?? null;
   }
 
-  if (state.selectedNodeId === nodeId) {
-    state.selectedNodeId = null;
-  }
-
+  state.selectedNodeIds = getSelectedNodeIds().filter((nodeId) => !removeIds.has(nodeId));
+  state.selectedNodeId = state.selectedNodeIds[0] ?? null;
   render();
 }
 
@@ -3707,6 +3754,7 @@ function loadSetup(setup, readOnly = state.readOnly) {
   });
   state.connections = (setup.connections ?? []).map((connection) => ({ ...connection }));
   state.readOnly = readOnly;
+  clearSelection();
   render();
 }
 
@@ -3751,13 +3799,17 @@ function loadSetupFromHash() {
   return true;
 }
 
-document.querySelector("#openGearLibrary").addEventListener("click", () => {
+function openGearLibrary() {
   if (state.readOnly) {
     return;
   }
 
-  gearDialog.showModal();
-});
+  if (!gearDialog.open) {
+    gearDialog.showModal();
+  }
+}
+
+document.querySelector("#openGearLibrary").addEventListener("click", openGearLibrary);
 
 gearList.addEventListener("click", (event) => {
   if (state.readOnly) {
@@ -3768,7 +3820,6 @@ gearList.addEventListener("click", (event) => {
 
   if (button) {
     addGear(button.dataset.addGear);
-    gearDialog.close();
   }
 });
 
@@ -3816,7 +3867,6 @@ document.querySelector("#addCustomGear").addEventListener("click", () => {
   };
 
   addGear(`custom-${state.nextId}`, customTemplate);
-  gearDialog.close();
 });
 
 document.querySelector("#addEditPort").addEventListener("click", addPortToEditDraft);
@@ -3870,8 +3920,13 @@ workspaceViewport.addEventListener("wheel", (event) => {
 deviceLayer.addEventListener("click", (event) => {
   const clickedNode = event.target.closest("article.node");
 
+  if (suppressNextNodeClick) {
+    suppressNextNodeClick = false;
+    return;
+  }
+
   if (!state.readOnly && clickedNode) {
-    state.selectedNodeId = clickedNode.dataset.nodeId;
+    setSelectedNodes([clickedNode.dataset.nodeId], clickedNode.dataset.nodeId);
   }
 
   const randomTarget = event.target.closest("[data-action='random-media']");
@@ -3889,7 +3944,13 @@ deviceLayer.addEventListener("click", (event) => {
 
   if (!actionTarget) {
     if (clickedNode) {
-      state.selectedSocket = null;
+      setSelectedNodes([clickedNode.dataset.nodeId], clickedNode.dataset.nodeId);
+      render();
+      return;
+    }
+
+    if (!state.readOnly && getSelectedNodeIds().length) {
+      clearSelection();
       render();
     }
 
@@ -4129,8 +4190,25 @@ deviceLayer.addEventListener("drop", (event) => {
   setDroppedFileMedia(node.dataset.nodeId, file);
 });
 
+workspace.addEventListener("pointerdown", (event) => {
+  if (state.readOnly || event.target.closest("article.node")) {
+    return;
+  }
+
+  if (getSelectedNodeIds().length || state.selectedSocket) {
+    clearSelection();
+    render();
+  }
+});
+
 deviceLayer.addEventListener("pointerdown", (event) => {
   if (state.readOnly) {
+    return;
+  }
+
+  if (!event.target.closest("article.node") && getSelectedNodeIds().length) {
+    clearSelection();
+    render();
     return;
   }
 
@@ -4181,26 +4259,58 @@ deviceLayer.addEventListener("pointerdown", (event) => {
   }
 
   const nodeId = node.dataset.nodeId;
-  const position = getNodePosition(nodeId);
 
-  if (!position) {
+  if (!getNodePosition(nodeId)) {
     return;
   }
 
-  state.selectedNodeId = nodeId;
-  state.selectedSocket = null;
+  if (!isNodeSelected(nodeId)) {
+    setSelectedNodes([nodeId], nodeId);
+  } else {
+    state.selectedNodeId = nodeId;
+    state.selectedSocket = null;
+  }
+
+  const draggedNodeIds = getSelectedNodeIds();
+  const draggedNodes = draggedNodeIds.map((selectedNodeId) => {
+    const selectedNode = getNode(selectedNodeId);
+    const selectedElement = deviceLayer.querySelector(`article.node[data-node-id="${selectedNodeId}"]`);
+    const rect = selectedElement?.getBoundingClientRect();
+
+    if (!selectedNode || !selectedElement || !rect) {
+      return null;
+    }
+
+    return {
+      nodeId: selectedNode.id,
+      element: selectedElement,
+      originX: selectedNode.position.x,
+      originY: selectedNode.position.y,
+      width: rect.width / state.zoom,
+      height: rect.height / state.zoom
+    };
+  }).filter(Boolean);
+
+  const bounds = draggedNodes.reduce((currentBounds, draggedNode) => ({
+    minX: Math.min(currentBounds.minX, draggedNode.originX),
+    minY: Math.min(currentBounds.minY, draggedNode.originY),
+    maxX: Math.max(currentBounds.maxX, draggedNode.originX + draggedNode.width),
+    maxY: Math.max(currentBounds.maxY, draggedNode.originY + draggedNode.height)
+  }), { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity });
+
   node.setPointerCapture(event.pointerId);
-  node.classList.add("is-dragging");
+  draggedNodes.forEach((draggedNode) => draggedNode.element.classList.add("is-dragging"));
 
   activeDrag = {
     type: "node",
     nodeId,
     node,
+    nodes: draggedNodes,
+    bounds,
     pointerId: event.pointerId,
     startX: event.clientX,
     startY: event.clientY,
-    originX: position.x,
-    originY: position.y
+    moved: false
   };
 });
 
@@ -4215,14 +4325,19 @@ deviceLayer.addEventListener("pointermove", (event) => {
     return;
   }
 
-  const nodeRect = activeDrag.node.getBoundingClientRect();
-  const nodeWidth = nodeRect.width / state.zoom;
-  const nodeHeight = nodeRect.height / state.zoom;
-  const nextX = clamp(activeDrag.originX + (event.clientX - activeDrag.startX) / state.zoom, 0, Math.max(WORLD_WIDTH - nodeWidth, 0));
-  const nextY = clamp(activeDrag.originY + (event.clientY - activeDrag.startY) / state.zoom, 0, Math.max(WORLD_HEIGHT - nodeHeight, 0));
+  const requestedDx = (event.clientX - activeDrag.startX) / state.zoom;
+  const requestedDy = (event.clientY - activeDrag.startY) / state.zoom;
+  const dx = clamp(requestedDx, -activeDrag.bounds.minX, WORLD_WIDTH - activeDrag.bounds.maxX);
+  const dy = clamp(requestedDy, -activeDrag.bounds.minY, WORLD_HEIGHT - activeDrag.bounds.maxY);
 
-  setNodePosition(activeDrag.nodeId, nextX, nextY);
-  activeDrag.node.style.transform = `translate(${nextX}px, ${nextY}px)`;
+  activeDrag.moved = activeDrag.moved || Math.abs(requestedDx) > 1 || Math.abs(requestedDy) > 1;
+  activeDrag.nodes.forEach((draggedNode) => {
+    const nextX = draggedNode.originX + dx;
+    const nextY = draggedNode.originY + dy;
+
+    setNodePosition(draggedNode.nodeId, nextX, nextY);
+    draggedNode.element.style.transform = `translate(${nextX}px, ${nextY}px)`;
+  });
   renderLines();
 });
 
@@ -4362,9 +4477,11 @@ function endDrag(event) {
     return;
   }
 
-  activeDrag.node.classList.remove("is-dragging");
+  activeDrag.nodes?.forEach((draggedNode) => draggedNode.element.classList.remove("is-dragging"));
+  suppressNextNodeClick = activeDrag.moved;
   activeDrag.node.releasePointerCapture(event.pointerId);
   activeDrag = null;
+  render();
 }
 
 function startCableDrag(event, socketButton) {
@@ -4475,11 +4592,28 @@ document.addEventListener("keydown", (event) => {
     return;
   }
 
-  if ((event.key === "Delete" || event.key === "Backspace") && !event.metaKey && !event.altKey && !event.ctrlKey && !event.shiftKey) {
-    if (!state.readOnly && state.selectedNodeId) {
-      removeNode(state.selectedNodeId);
+  if (event.key === "Escape") {
+    if (getSelectedNodeIds().length || state.selectedSocket) {
+      clearSelection();
+      render();
       event.preventDefault();
     }
+    return;
+  }
+
+  if ((event.key === "Delete" || event.key === "Backspace") && !event.metaKey && !event.altKey && !event.ctrlKey && !event.shiftKey) {
+    const selectedNodeIds = getSelectedNodeIds();
+
+    if (!state.readOnly && selectedNodeIds.length) {
+      removeNodes(selectedNodeIds);
+      event.preventDefault();
+    }
+    return;
+  }
+
+  if (event.key.toLowerCase() === "a" && event.shiftKey && !event.metaKey && !event.altKey && !event.ctrlKey) {
+    openGearLibrary();
+    event.preventDefault();
     return;
   }
 
@@ -4494,6 +4628,11 @@ document.addEventListener("keydown", (event) => {
 
   if (event.key.toLowerCase() === "v") {
     pasteCopiedNode();
+    event.preventDefault();
+  }
+
+  if (event.key.toLowerCase() === "a") {
+    selectAllNodes();
     event.preventDefault();
   }
 });
