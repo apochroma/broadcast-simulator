@@ -1567,10 +1567,22 @@ function showAudioMeter(switcherId, input, options = {}) {
     return;
   }
 
+  const kind = options.kind ?? "source";
+  const normalizedInput = kind === "source" ? Number(input) : input;
+  const previousMeter = state.activeAudioMeter;
+  const anchorRect = options.anchorRect
+    ?? (previousMeter
+      && previousMeter.switcherId === switcherId
+      && previousMeter.kind === kind
+      && String(previousMeter.input) === String(normalizedInput)
+      ? previousMeter.anchorRect
+      : null);
+
   state.activeAudioMeter = {
     switcherId,
-    kind: options.kind ?? "source",
-    input: options.kind === "source" || options.kind === undefined ? Number(input) : input
+    kind,
+    input: normalizedInput,
+    anchorRect
   };
 
   window.clearTimeout(audioMeterTimer);
@@ -1582,11 +1594,39 @@ function showAudioMeter(switcherId, input, options = {}) {
   }
 }
 
-function showAudioMeterFromHover(switcherId, input, kind = "source") {
+function getElementViewportRect(element) {
+  const rect = element.getBoundingClientRect();
+  return {
+    left: rect.left,
+    right: rect.right,
+    top: rect.top,
+    bottom: rect.bottom,
+    width: rect.width,
+    height: rect.height
+  };
+}
+
+function getAudioMeterAnchorElement(audioTarget) {
+  if (audioTarget.dataset.audioKind !== "source") {
+    return audioTarget;
+  }
+
+  const selector = [
+    "[data-action='set-audio-source']",
+    `[data-node-id='${CSS.escape(audioTarget.dataset.nodeId)}']`,
+    `[data-audio-input='${CSS.escape(audioTarget.dataset.audioInput)}']`,
+    "[data-mode='afv']"
+  ].join("");
+
+  return deviceLayer.querySelector(selector) ?? audioTarget;
+}
+
+function showAudioMeterFromHover(switcherId, input, kind = "source", anchorElement = null) {
   const nextMeter = {
     switcherId,
     kind,
-    input: kind === "source" ? Number(input) : input
+    input: kind === "source" ? Number(input) : input,
+    anchorRect: anchorElement ? getElementViewportRect(anchorElement) : null
   };
   const activeMeter = state.activeAudioMeter;
   const isSameMeter = activeMeter
@@ -1598,13 +1638,13 @@ function showAudioMeterFromHover(switcherId, input, kind = "source") {
   window.clearTimeout(audioMeterSwitchTimer);
 
   if (!activeMeter || isSameMeter) {
-    showAudioMeter(nextMeter.switcherId, nextMeter.input, { kind, autoHide: false });
+    showAudioMeter(nextMeter.switcherId, nextMeter.input, { kind, autoHide: false, anchorRect: nextMeter.anchorRect });
     renderAudioMeterPopover();
     return;
   }
 
   audioMeterSwitchTimer = window.setTimeout(() => {
-    showAudioMeter(nextMeter.switcherId, nextMeter.input, { kind, autoHide: false });
+    showAudioMeter(nextMeter.switcherId, nextMeter.input, { kind, autoHide: false, anchorRect: nextMeter.anchorRect });
     renderAudioMeterPopover();
   }, AUDIO_METER_SWITCH_DELAY_MS);
 }
@@ -1635,6 +1675,10 @@ function renderAudioMeterPopover() {
   if (!meter || switcher?.type !== "switcher") {
     audioMeterPopover.classList.add("is-hidden");
     audioMeterPopover.innerHTML = "";
+    audioMeterPopover.style.left = "";
+    audioMeterPopover.style.top = "";
+    audioMeterPopover.style.right = "";
+    audioMeterPopover.style.bottom = "";
     return;
   }
 
@@ -1665,6 +1709,7 @@ function renderAudioMeterPopover() {
         </div>
       </div>
     `;
+    positionAudioMeterPopover(meter);
     return;
   }
 
@@ -1709,6 +1754,35 @@ function renderAudioMeterPopover() {
       </div>
     </div>
   `;
+  positionAudioMeterPopover(meter);
+}
+
+function positionAudioMeterPopover(meter) {
+  const anchor = meter?.anchorRect;
+  const margin = 14;
+  const viewportPadding = 14;
+
+  audioMeterPopover.style.right = "auto";
+  audioMeterPopover.style.bottom = "auto";
+
+  if (!anchor) {
+    audioMeterPopover.style.left = "";
+    audioMeterPopover.style.top = "";
+    audioMeterPopover.style.right = "32px";
+    audioMeterPopover.style.bottom = "32px";
+    return;
+  }
+
+  const popoverRect = audioMeterPopover.getBoundingClientRect();
+  const popoverWidth = popoverRect.width;
+  const popoverHeight = popoverRect.height;
+  const unclampedLeft = anchor.left + (anchor.width / 2) - (popoverWidth / 2);
+  const unclampedTop = anchor.top - popoverHeight - margin;
+  const maxLeft = Math.max(viewportPadding, window.innerWidth - popoverWidth - viewportPadding);
+  const maxTop = Math.max(viewportPadding, window.innerHeight - popoverHeight - viewportPadding);
+
+  audioMeterPopover.style.left = `${clamp(unclampedLeft, viewportPadding, maxLeft)}px`;
+  audioMeterPopover.style.top = `${clamp(unclampedTop, viewportPadding, maxTop)}px`;
 }
 
 function renderAudioMeterStrip(label, db, mode, fader, switcherId, input, kind = "source") {
@@ -4246,7 +4320,8 @@ deviceLayer.addEventListener("pointerover", (event) => {
   showAudioMeterFromHover(
     audioTarget.dataset.nodeId,
     audioTarget.dataset.audioInput,
-    audioTarget.dataset.audioKind ?? "source"
+    audioTarget.dataset.audioKind ?? "source",
+    getAudioMeterAnchorElement(audioTarget)
   );
 });
 

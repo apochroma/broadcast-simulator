@@ -117,8 +117,6 @@ body.is-read-only #openGearLibrary {
 
 .audio-meter-popover {
   position: fixed;
-  right: 32px;
-  bottom: 32px;
   z-index: 80;
   width: min(480px, calc(100vw - 32px));
   padding: 16px;
