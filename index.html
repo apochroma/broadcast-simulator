@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Broadcast Signalfluss Simulation</title>
-    <link rel="stylesheet" href="styles.css?v=undo-structure-62">
+    <link rel="stylesheet" href="styles.css?v=media-pool-2">
   </head>
   <body>
     <main class="app-shell">
@@ -48,6 +48,7 @@
       </section>
     </main>
     <aside class="audio-meter-popover is-hidden" id="audioMeterPopover" aria-live="polite"></aside>
+    <div class="media-pool-cursor is-hidden" id="mediaPoolCursor" aria-hidden="true"></div>
 
     <dialog class="gear-dialog" id="gearDialog">
       <form class="gear-dialog-card" method="dialog">
@@ -158,6 +159,26 @@
       </form>
     </dialog>
 
-    <script src="app.js?v=undo-structure-62"></script>
+    <dialog class="gear-dialog media-pool-dialog" id="mediaPoolDialog">
+      <form class="gear-dialog-card media-pool-card" method="dialog">
+        <header class="dialog-header">
+          <div>
+            <p class="eyebrow">ATEM Media</p>
+            <h2 id="mediaPoolHeading">Media Player</h2>
+          </div>
+          <button class="icon-button" value="cancel" aria-label="Dialog schließen">x</button>
+        </header>
+
+        <div class="media-pool-toolbar">
+          <button class="library-button" type="button" id="pickMediaPoolImage">Bild auswählen</button>
+          <span id="mediaPoolHint">Bild auf einen Slot ziehen oder nach Auswahl in einen Slot klicken.</span>
+          <input id="mediaPoolFileInput" type="file" accept="image/*" hidden>
+        </div>
+
+        <section class="media-pool-grid" id="mediaPoolGrid" aria-label="Media Pool Slots"></section>
+      </form>
+    </dialog>
+
+    <script src="app.js?v=media-pool-2"></script>
   </body>
 </html>

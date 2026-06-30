@@ -536,6 +536,10 @@ body.is-read-only #openGearLibrary {
   box-shadow: var(--shadow);
 }
 
+.media-pool-dialog {
+  width: min(900px, calc(100vw - 32px));
+}
+
 .gear-dialog::backdrop {
   background: rgba(0, 0, 0, 0.58);
 }
@@ -643,6 +647,104 @@ body.is-read-only #openGearLibrary {
 .dialog-actions {
   display: flex;
   justify-content: end;
+}
+
+.media-pool-card {
+  gap: 14px;
+}
+
+.media-pool-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.media-pool-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.media-pool-slot {
+  position: relative;
+  display: grid;
+  aspect-ratio: 16 / 9;
+  place-items: center;
+  overflow: hidden;
+  border: 2px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.04), transparent),
+    #10151a;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.media-pool-slot:hover,
+.media-pool-slot:focus-visible {
+  border-color: rgba(76, 201, 240, 0.72);
+  outline: none;
+}
+
+.media-pool-slot.is-selected {
+  border-color: #4cca8d;
+  box-shadow: 0 0 0 2px rgba(76, 202, 141, 0.18);
+}
+
+.media-pool-slot strong {
+  font-size: 1.35rem;
+  font-weight: 1000;
+}
+
+.media-pool-slot em {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.media-pool-slot img {
+  width: calc(100% - 12px);
+  height: calc(100% - 12px);
+  object-fit: contain;
+}
+
+.media-pool-slot.has-media span {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  min-width: 24px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 1000;
+}
+
+.media-pool-cursor {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1000;
+  width: 128px;
+  height: 72px;
+  overflow: hidden;
+  border: 2px solid rgba(76, 201, 240, 0.9);
+  border-radius: 8px;
+  background: rgba(10, 12, 14, 0.65);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.45);
+  opacity: 0.62;
+  pointer-events: none;
+}
+
+.media-pool-cursor img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .port-list {
@@ -996,7 +1098,8 @@ body.is-read-only #openGearLibrary {
 .media-drop-zone,
 .media-surface {
   width: 100%;
-  min-height: 150px;
+  aspect-ratio: 16 / 9;
+  min-height: 0;
   border-radius: 6px;
 }
 
@@ -1016,8 +1119,8 @@ body.is-read-only #openGearLibrary {
 .media-surface video {
   width: 100%;
   height: 100%;
-  min-height: 150px;
-  object-fit: cover;
+  min-height: 0;
+  object-fit: contain;
 }
 
 .file-placeholder {

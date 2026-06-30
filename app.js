@@ -196,6 +196,7 @@ const GAIN_HOLD_DELAY_MS = 360;
 const GAIN_HOLD_INTERVAL_MS = 70;
 const CABLE_SNAP_DISTANCE_PX = 34;
 const UNDO_HISTORY_LIMIT = 80;
+const MEDIA_POOL_SLOT_COUNT = 20;
 const audioNoteColors = ["#d65aff", "#ff4f6a", "#55e6a5", "#ffd166", "#60d8ff", "#f78c3f"];
 
 const state = {
@@ -204,6 +205,8 @@ const state = {
   activeSwitcherId: null,
   activeTransition: null,
   activeAudioMeter: null,
+  activeMediaPool: null,
+  pendingMediaPoolImage: null,
   audioFades: [],
   readOnly: false,
   selectedNodeId: null,
@@ -232,6 +235,11 @@ const editGearDialog = document.querySelector("#editGearDialog");
 const editGearHeading = document.querySelector("#editGearHeading");
 const editGearName = document.querySelector("#editGearName");
 const editPortList = document.querySelector("#editPortList");
+const mediaPoolDialog = document.querySelector("#mediaPoolDialog");
+const mediaPoolHeading = document.querySelector("#mediaPoolHeading");
+const mediaPoolGrid = document.querySelector("#mediaPoolGrid");
+const mediaPoolFileInput = document.querySelector("#mediaPoolFileInput");
+const mediaPoolCursor = document.querySelector("#mediaPoolCursor");
 
 let activeDrag = null;
 let suppressNextSocketClick = false;
@@ -304,6 +312,7 @@ function addGear(type, customTemplate) {
     multiviewInput: null,
     pipEnabled: false,
     pipPreset: template.type === "switcher" ? "top-left" : null,
+    mediaPools: template.type === "switcher" ? createSwitcherMediaPools() : null,
     isRecording: false,
     isStreaming: false,
     cutFlashing: false,
@@ -318,6 +327,7 @@ function addGear(type, customTemplate) {
 
   if (node.type === "switcher") {
     state.activeSwitcherId = node.id;
+    ensureSwitcherMediaPools(node);
   }
 
   render();
@@ -362,6 +372,7 @@ function render() {
   emptyState.classList.toggle("is-hidden", state.nodes.length > 0);
   programStatus.textContent = getProgramStatus();
   renderAudioMeterPopover();
+  renderMediaPoolDialog();
   renderGearList();
   renderZoom();
   requestAnimationFrame(renderLines);
@@ -384,6 +395,9 @@ function renderGearList() {
 
 function renderNode(node) {
   ensureSourceIdentity(node);
+  if (node.type === "switcher") {
+    ensureSwitcherMediaPools(node);
+  }
   const programSource = getSwitcherProgramSource(getActiveSwitcher());
   const previewSource = getSwitcherPreviewSource(getActiveSwitcher());
   const classes = [
@@ -1249,6 +1263,53 @@ function renderPipPresetButton(switcher, preset) {
 
 function renderPanelButton(label, variant = "") {
   return `<button class="panel-button ${variant}" type="button" disabled>${label}</button>`;
+}
+
+function createSwitcherMediaPools() {
+  return {
+    mp1: createMediaPoolState(),
+    mp2: createMediaPoolState()
+  };
+}
+
+function createMediaPoolState() {
+  return {
+    selectedSlot: 0,
+    slots: Array.from({ length: MEDIA_POOL_SLOT_COUNT }, () => null)
+  };
+}
+
+function ensureSwitcherMediaPools(switcher) {
+  if (switcher?.type !== "switcher") {
+    return;
+  }
+
+  switcher.mediaPools ??= createSwitcherMediaPools();
+  ["mp1", "mp2"].forEach((playerId) => {
+    switcher.mediaPools[playerId] ??= createMediaPoolState();
+    const pool = switcher.mediaPools[playerId];
+    pool.slots = Array.from({ length: MEDIA_POOL_SLOT_COUNT }, (_, index) => pool.slots?.[index] ?? null);
+    pool.selectedSlot = clamp(Number(pool.selectedSlot ?? 0), 0, MEDIA_POOL_SLOT_COUNT - 1);
+  });
+}
+
+function cloneSwitcherMediaPools(mediaPools) {
+  return {
+    mp1: cloneMediaPoolState(mediaPools?.mp1),
+    mp2: cloneMediaPoolState(mediaPools?.mp2)
+  };
+}
+
+function cloneMediaPoolState(pool) {
+  const normalizedPool = pool ?? createMediaPoolState();
+
+  return {
+    selectedSlot: clamp(Number(normalizedPool.selectedSlot ?? 0), 0, MEDIA_POOL_SLOT_COUNT - 1),
+    slots: Array.from({ length: MEDIA_POOL_SLOT_COUNT }, (_, index) => {
+      const slot = normalizedPool.slots?.[index];
+      return slot ? { ...slot } : null;
+    })
+  };
 }
 
 function createSwitcherAudioState(inputCount = 0) {
@@ -2268,6 +2329,7 @@ function renderSourceButton(switcher, input) {
 function renderMediaSourceButton(switcher, source) {
   const isProgram = switcher.programInput === source.id;
   const isPreview = getSwitcherBusMode(switcher) !== "cutBus" && switcher.previewInput === source.id && !isProgram;
+  const opensMediaPool = source.id === "mp1" || source.id === "mp2";
   const buttonClass = [
     "panel-button",
     "source-extra",
@@ -2282,6 +2344,7 @@ function renderMediaSourceButton(switcher, source) {
       data-action="select-preview"
       data-node-id="${switcher.id}"
       data-input="${source.id}"
+      ${opensMediaPool ? `data-media-player="${source.id}"` : ""}
       aria-pressed="${isPreview || isProgram}">
       ${source.label}
     </button>
@@ -2622,7 +2685,7 @@ function getSwitcherPreviewSource(switcher) {
 }
 
 function getSwitcherInputSource(switcher, input) {
-  const mediaSource = getSwitcherMediaSource(input);
+  const mediaSource = getSwitcherMediaSource(input, switcher);
 
   if (mediaSource) {
     return mediaSource;
@@ -2631,8 +2694,23 @@ function getSwitcherInputSource(switcher, input) {
   return resolveNodeInputSource(switcher, `input-${input}`);
 }
 
-function getSwitcherMediaSource(source) {
-  return switcherMediaSources.find((item) => item.id === source) ?? null;
+function getSwitcherMediaSource(source, switcher = null) {
+  const mediaSource = switcherMediaSources.find((item) => item.id === source) ?? null;
+
+  if (!mediaSource || !["mp1", "mp2"].includes(mediaSource.id) || !switcher) {
+    return mediaSource;
+  }
+
+  ensureSwitcherMediaPools(switcher);
+  const pool = switcher.mediaPools[mediaSource.id];
+  const selectedMedia = pool.slots[pool.selectedSlot];
+
+  return {
+    ...mediaSource,
+    shortName: mediaSource.shortName,
+    name: selectedMedia ? `${mediaSource.name} Slot ${pool.selectedSlot + 1}` : mediaSource.name,
+    media: selectedMedia ?? null
+  };
 }
 
 function normalizeSwitcherBusSource(source) {
@@ -2677,6 +2755,139 @@ function getSwitcherBusSourceLabel(source) {
   const mediaSource = getSwitcherMediaSource(source);
 
   return mediaSource ? mediaSource.label : source;
+}
+
+function openMediaPool(switcherId, playerId) {
+  const switcher = getNode(switcherId);
+
+  if (switcher?.type !== "switcher" || !["mp1", "mp2"].includes(playerId)) {
+    return;
+  }
+
+  selectPreview(switcherId, playerId);
+  ensureSwitcherMediaPools(switcher);
+  state.activeMediaPool = { switcherId, playerId };
+  state.pendingMediaPoolImage = null;
+  updateMediaPoolCursor();
+  renderMediaPoolDialog();
+  mediaPoolDialog?.showModal();
+}
+
+function closeMediaPool() {
+  state.activeMediaPool = null;
+  state.pendingMediaPoolImage = null;
+  updateMediaPoolCursor();
+  if (mediaPoolDialog?.open) {
+    mediaPoolDialog.close();
+  }
+}
+
+function getActiveMediaPool() {
+  const activePool = state.activeMediaPool;
+  const switcher = activePool ? getNode(activePool.switcherId) : null;
+
+  if (switcher?.type !== "switcher" || !["mp1", "mp2"].includes(activePool.playerId)) {
+    return null;
+  }
+
+  ensureSwitcherMediaPools(switcher);
+  return {
+    switcher,
+    playerId: activePool.playerId,
+    pool: switcher.mediaPools[activePool.playerId]
+  };
+}
+
+function renderMediaPoolDialog() {
+  if (!mediaPoolDialog || !mediaPoolGrid || !mediaPoolHeading) {
+    return;
+  }
+
+  const activePool = getActiveMediaPool();
+
+  if (!activePool) {
+    mediaPoolGrid.innerHTML = "";
+    return;
+  }
+
+  const { switcher, playerId, pool } = activePool;
+  mediaPoolHeading.textContent = `${switcher.title} ${playerId.toUpperCase()}`;
+  mediaPoolGrid.innerHTML = pool.slots.map((slot, index) => {
+    const isSelected = pool.selectedSlot === index;
+    const slotContent = slot
+      ? `<img src="${slot.url}" alt="${slot.name}"><span>${index + 1}</span>`
+      : `<strong>${index + 1}</strong><em>Leer</em>`;
+
+    return `
+      <button class="media-pool-slot ${isSelected ? "is-selected" : ""} ${slot ? "has-media" : ""}"
+        type="button"
+        data-action="set-media-pool-slot"
+        data-slot-index="${index}"
+        aria-pressed="${isSelected}">
+        ${slotContent}
+      </button>
+    `;
+  }).join("");
+}
+
+async function createImageMediaFromFile(file) {
+  return {
+    kind: "image",
+    name: file.name,
+    url: await fileToDataUrl(file)
+  };
+}
+
+async function preparePendingMediaPoolImage(file) {
+  if (!file?.type.startsWith("image/")) {
+    return;
+  }
+
+  state.pendingMediaPoolImage = await createImageMediaFromFile(file);
+  updateMediaPoolCursor();
+}
+
+async function putMediaPoolImageInSlot(slotIndex, fileOrMedia = state.pendingMediaPoolImage) {
+  const activePool = getActiveMediaPool();
+
+  if (!activePool || !Number.isInteger(slotIndex)) {
+    return;
+  }
+
+  const media = fileOrMedia instanceof File
+    ? await createImageMediaFromFile(fileOrMedia)
+    : fileOrMedia;
+
+  if (!media) {
+    activePool.pool.selectedSlot = clamp(slotIndex, 0, MEDIA_POOL_SLOT_COUNT - 1);
+    render();
+    return;
+  }
+
+  activePool.pool.slots[slotIndex] = { ...media };
+  activePool.pool.selectedSlot = slotIndex;
+  state.pendingMediaPoolImage = null;
+  updateMediaPoolCursor();
+  render();
+}
+
+function updateMediaPoolCursor(event = null) {
+  if (!mediaPoolCursor) {
+    return;
+  }
+
+  const media = state.pendingMediaPoolImage;
+  mediaPoolCursor.classList.toggle("is-hidden", !media);
+
+  if (!media) {
+    mediaPoolCursor.innerHTML = "";
+    return;
+  }
+
+  mediaPoolCursor.innerHTML = `<img src="${media.url}" alt="">`;
+  if (event) {
+    mediaPoolCursor.style.transform = `translate(${event.clientX + 16}px, ${event.clientY + 16}px)`;
+  }
 }
 
 function resolveNodeInputSource(node, portId) {
@@ -3388,6 +3599,7 @@ function createNodeClipboardSnapshot(node) {
     inputs: (node.inputs ?? []).map((port) => ({ ...port })),
     outputs: (node.outputs ?? []).map((port) => ({ ...port })),
     media: node.media ? { ...node.media } : node.media,
+    mediaPools: node.mediaPools ? cloneSwitcherMediaPools(node.mediaPools) : node.mediaPools,
     audio: node.audio ? {
       sources: { ...node.audio.sources },
       faders: { ...(node.audio.faders ?? {}) },
@@ -3417,6 +3629,7 @@ function createNodeFromClipboardSnapshot(snapshot) {
     inputs: (snapshot.inputs ?? []).map((port) => ({ ...port })),
     outputs: (snapshot.outputs ?? []).map((port) => ({ ...port })),
     media: snapshot.media ? { ...snapshot.media } : snapshot.media,
+    mediaPools: snapshot.mediaPools ? cloneSwitcherMediaPools(snapshot.mediaPools) : snapshot.mediaPools,
     audio: snapshot.audio ? {
       sources: { ...snapshot.audio.sources },
       faders: { ...(snapshot.audio.faders ?? {}) },
@@ -3443,6 +3656,7 @@ function createNodeFromClipboardSnapshot(snapshot) {
       : null;
     node.pipEnabled = Boolean(node.pipEnabled);
     node.pipPreset = getSwitcherPipPreset(node);
+    ensureSwitcherMediaPools(node);
     ensureSwitcherAudioState(node);
   }
 
@@ -4149,6 +4363,12 @@ deviceLayer.addEventListener("click", (event) => {
     return;
   }
 
+  if (actionTarget.dataset.mediaPlayer && event.detail >= 2) {
+    openMediaPool(actionTarget.dataset.nodeId, actionTarget.dataset.mediaPlayer);
+    event.preventDefault();
+    return;
+  }
+
   if (action === "socket") {
     if (suppressNextSocketClick) {
       suppressNextSocketClick = false;
@@ -4167,6 +4387,10 @@ deviceLayer.addEventListener("click", (event) => {
 
   if (action === "select-preview") {
     selectPreview(actionTarget.dataset.nodeId, actionTarget.dataset.input);
+  }
+
+  if (action === "open-media-pool") {
+    openMediaPool(actionTarget.dataset.nodeId, actionTarget.dataset.mediaPlayer);
   }
 
   if (action === "set-audio-source") {
@@ -4256,6 +4480,21 @@ deviceLayer.addEventListener("click", (event) => {
   if (action === "edit-node") {
     openEditGear(actionTarget.dataset.nodeId);
   }
+});
+
+deviceLayer.addEventListener("dblclick", (event) => {
+  if (state.readOnly) {
+    return;
+  }
+
+  const mediaPlayerButton = event.target.closest("[data-media-player][data-node-id]");
+
+  if (!mediaPlayerButton || !deviceLayer.contains(mediaPlayerButton)) {
+    return;
+  }
+
+  event.preventDefault();
+  openMediaPool(mediaPlayerButton.dataset.nodeId, mediaPlayerButton.dataset.mediaPlayer);
 });
 
 cableLayer.addEventListener("dblclick", (event) => {
@@ -4386,6 +4625,61 @@ audioMeterPopover?.addEventListener("click", (event) => {
       toggleSwitcherInputFaderLock(lockButton.dataset.nodeId, Number(lockButton.dataset.input));
     }
   }
+});
+
+mediaPoolDialog?.addEventListener("close", () => {
+  state.activeMediaPool = null;
+  state.pendingMediaPoolImage = null;
+  updateMediaPoolCursor();
+});
+
+document.querySelector("#pickMediaPoolImage")?.addEventListener("click", () => {
+  mediaPoolFileInput?.click();
+});
+
+mediaPoolFileInput?.addEventListener("change", async (event) => {
+  const file = event.target.files?.[0];
+
+  if (file) {
+    await preparePendingMediaPoolImage(file);
+  }
+
+  event.target.value = "";
+});
+
+mediaPoolGrid?.addEventListener("click", (event) => {
+  const slot = event.target.closest("[data-action='set-media-pool-slot']");
+
+  if (!slot) {
+    return;
+  }
+
+  putMediaPoolImageInSlot(Number(slot.dataset.slotIndex));
+});
+
+mediaPoolGrid?.addEventListener("dragover", (event) => {
+  if (!event.dataTransfer?.types.includes("Files")) {
+    return;
+  }
+
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "copy";
+});
+
+mediaPoolGrid?.addEventListener("drop", async (event) => {
+  const slot = event.target.closest("[data-action='set-media-pool-slot']");
+  const file = event.dataTransfer?.files?.[0];
+
+  if (!slot || !file?.type.startsWith("image/")) {
+    return;
+  }
+
+  event.preventDefault();
+  await putMediaPoolImageInSlot(Number(slot.dataset.slotIndex), file);
+});
+
+document.addEventListener("pointermove", (event) => {
+  updateMediaPoolCursor(event);
 });
 
 deviceLayer.addEventListener("dragover", (event) => {
