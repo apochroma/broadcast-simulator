@@ -4,24 +4,32 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Broadcast Signalfluss Simulation</title>
-    <link rel="stylesheet" href="styles.css?v=media-pool-2">
+    <link rel="stylesheet" href="styles.css?v=compact-toolbar-1">
   </head>
   <body>
     <main class="app-shell">
-      <header class="topbar">
-        <div>
-          <p class="eyebrow">Signalfluss-Prototyp</p>
-          <h1>Broadcast Patchfläche</h1>
-        </div>
-        <div class="status-pill" id="programStatus">Keine Program-Quelle</div>
-      </header>
-
       <div class="toolbar">
         <section class="library" aria-label="Gear Bibliothek">
-          <button class="library-button" type="button" id="openGearLibrary">ADD Gear</button>
-          <button class="library-button" type="button" id="exportSetup">Export JSON</button>
-          <button class="library-button" type="button" id="importSetup">Import JSON</button>
-          <button class="library-button" type="button" id="shareSetup">Read-only Link</button>
+          <details class="action-menu">
+            <summary class="library-button">Aktionen</summary>
+            <div class="action-menu-panel">
+              <button class="action-menu-item" type="button" id="openGearLibrary">
+                <span>Add Gear</span>
+                <kbd>⇧A</kbd>
+              </button>
+              <button class="action-menu-item" type="button" id="exportSetup">
+                <span>Export</span>
+                <kbd>⇧E</kbd>
+              </button>
+              <button class="action-menu-item" type="button" id="importSetup">
+                <span>Import</span>
+                <kbd>⇧I</kbd>
+              </button>
+              <button class="action-menu-item" type="button" id="shareSetup">
+                <span>Share Link</span>
+              </button>
+            </div>
+          </details>
           <input id="importSetupFile" type="file" accept="application/json,.json" hidden>
         </section>
 
@@ -179,6 +187,6 @@
       </form>
     </dialog>
 
-    <script src="app.js?v=media-pool-2"></script>
+    <script src="app.js?v=compact-toolbar-1"></script>
   </body>
 </html>

@@ -67,7 +67,10 @@ const gearLibrary = {
       { id: "sdi-in", label: "SDI In", signal: "SDI", top: 42 },
       { id: "hdmi-in", label: "HDMI In", signal: "HDMI", top: 58 }
     ],
-    outputs: []
+    outputs: [
+      { id: "sdi-out", label: "SDI Out", signal: "SDI", top: 42 },
+      { id: "hdmi-out", label: "HDMI Out", signal: "HDMI", top: 58 }
+    ]
   }
 };
 
@@ -271,7 +274,7 @@ const gearEntries = [
   ["atemSdiExtremeIso", "Blackmagic ATEM SDI", "ATEM SDI Extreme ISO", "8 SDI Inputs, 2x SDI Out, 2x USB-C, Phones"],
   ["computer", "Playback", "Computer / Playback", "HDMI, USB-C, RJ45 und 3.5mm Line-Out mit Datei-Preview"],
   ["hdmiSplitter", "Distribution", "HDMI Splitter 1x5", "1 HDMI Input, 5 HDMI Outputs"],
-  ["monitor", "Monitoring", "Program Monitor", "SDI oder HDMI Input"]
+  ["monitor", "Monitoring", "Program Monitor", "SDI/HDMI Input und Loop-Out"]
 ];
 
 function makeNumberedPorts(prefix, count, signal, labelPrefix, firstTop, step) {
@@ -370,7 +373,9 @@ function render() {
   document.body.classList.toggle("is-read-only", state.readOnly);
   deviceLayer.innerHTML = state.nodes.map(renderNode).join("");
   emptyState.classList.toggle("is-hidden", state.nodes.length > 0);
-  programStatus.textContent = getProgramStatus();
+  if (programStatus) {
+    programStatus.textContent = getProgramStatus();
+  }
   renderAudioMeterPopover();
   renderMediaPoolDialog();
   renderGearList();
@@ -394,6 +399,7 @@ function renderGearList() {
 }
 
 function renderNode(node) {
+  ensureMonitorLoopOutputs(node);
   ensureSourceIdentity(node);
   if (node.type === "switcher") {
     ensureSwitcherMediaPools(node);
@@ -563,6 +569,22 @@ function ensureComputerLineOut(node) {
   }
 
   node.outputs.push({ id: "line-out", label: "Line Out", signal: "Mic 3.5mm", top: 86 });
+}
+
+function ensureMonitorLoopOutputs(node) {
+  if (node?.type !== "monitor") {
+    return;
+  }
+
+  node.outputs ??= [];
+
+  if (!node.outputs.some((port) => port.id === "sdi-out")) {
+    node.outputs.push({ id: "sdi-out", label: "SDI Out", signal: "SDI", top: 42 });
+  }
+
+  if (!node.outputs.some((port) => port.id === "hdmi-out")) {
+    node.outputs.push({ id: "hdmi-out", label: "HDMI Out", signal: "HDMI", top: 58 });
+  }
 }
 
 function getDefaultSourceViewMode(type) {
@@ -2414,6 +2436,11 @@ function resolveTransitionFromPort(portRef, visited = new Set()) {
     return inputConnection ? resolveTransitionFromPort(inputConnection.from, visited) : null;
   }
 
+  if (node.type === "monitor" && ["sdi-out", "hdmi-out"].includes(portRef.portId)) {
+    const monitorFeed = getMonitorFeedForOutput(node, portRef.portId, visited);
+    return monitorFeed.transition ?? null;
+  }
+
   return null;
 }
 
@@ -2621,16 +2648,26 @@ function getMonitorFeed(monitor) {
     return { type: "none", connected: false, source: null };
   }
 
-  const fromNode = getNode(inputConnection.from.nodeId);
+  return getFeedFromPort(inputConnection.from);
+}
 
-  if (fromNode?.type === "switcher") {
-    if (inputConnection.from.portId === "multiview-out") {
+function getFeedFromPort(portRef, visited = new Set()) {
+  const fromNode = getNode(portRef.nodeId);
+
+  if (!fromNode || visited.has(`${portRef.nodeId}:${portRef.portId}`)) {
+    return { type: "none", connected: false, source: null };
+  }
+
+  visited.add(`${portRef.nodeId}:${portRef.portId}`);
+
+  if (fromNode.type === "switcher") {
+    if (portRef.portId === "multiview-out") {
       return getSwitcherMultiviewFeed(fromNode);
     }
 
-    const activeTransition = resolveTransitionFromPort(inputConnection.from);
+    const activeTransition = resolveTransitionFromPort(portRef, new Set(visited));
 
-    if (activeTransition && inputConnection.from.portId === "program-out") {
+    if (activeTransition && portRef.portId === "program-out") {
       return { type: "program", connected: true, transition: activeTransition, source: null };
     }
 
@@ -2642,7 +2679,30 @@ function getMonitorFeed(monitor) {
     };
   }
 
-  return { type: "program", connected: true, source: resolveSourceFromPort(inputConnection.from) };
+  if (fromNode.type === "monitor" && ["sdi-out", "hdmi-out"].includes(portRef.portId)) {
+    return getMonitorFeedForOutput(fromNode, portRef.portId, visited);
+  }
+
+  return { type: "program", connected: true, source: resolveSourceFromPort(portRef, visited) };
+}
+
+function getMonitorFeedForOutput(monitor, portId, visited = new Set()) {
+  if (monitor?.type !== "monitor" || !["sdi-out", "hdmi-out"].includes(portId)) {
+    return { type: "none", connected: false, source: null };
+  }
+
+  const preferredInputPortId = portId === "sdi-out" ? "sdi-in" : "hdmi-in";
+  const inputConnection = state.connections.find((connection) => (
+    connection.to.nodeId === monitor.id && connection.to.portId === preferredInputPortId
+  )) ?? state.connections.find((connection) => (
+    connection.to.nodeId === monitor.id && ["sdi-in", "hdmi-in"].includes(connection.to.portId)
+  ));
+
+  if (!inputConnection) {
+    return { type: "none", connected: false, source: null };
+  }
+
+  return getFeedFromPort(inputConnection.from, visited);
 }
 
 function getSwitcherMultiviewFeed(switcher) {
@@ -2890,15 +2950,15 @@ function updateMediaPoolCursor(event = null) {
   }
 }
 
-function resolveNodeInputSource(node, portId) {
+function resolveNodeInputSource(node, portId, visited = new Set()) {
   const connection = state.connections.find((item) => (
     item.to.nodeId === node.id && item.to.portId === portId
   ));
 
-  return connection ? resolveSourceFromPort(connection.from) : null;
+  return connection ? resolveSourceFromPort(connection.from, visited) : null;
 }
 
-function resolveSourceFromPort(portRef) {
+function resolveSourceFromPort(portRef, visited = new Set()) {
   const node = getNode(portRef.nodeId);
 
   if (!node) {
@@ -2913,12 +2973,22 @@ function resolveSourceFromPort(portRef) {
     return node;
   }
 
+  if (visited.has(`${portRef.nodeId}:${portRef.portId}`)) {
+    return null;
+  }
+
+  visited.add(`${portRef.nodeId}:${portRef.portId}`);
+
   if (node.type === "splitter") {
-    return resolveNodeInputSource(node, "input-1");
+    return resolveNodeInputSource(node, "input-1", visited);
   }
 
   if (node.type === "switcher" && portRef.portId === "program-out") {
     return getSwitcherProgramSource(node);
+  }
+
+  if (node.type === "monitor" && ["sdi-out", "hdmi-out"].includes(portRef.portId)) {
+    return getMonitorFeedForOutput(node, portRef.portId, visited).source;
   }
 
   return null;
@@ -4198,6 +4268,11 @@ function openGearLibrary() {
 }
 
 document.querySelector("#openGearLibrary").addEventListener("click", openGearLibrary);
+document.querySelector(".action-menu")?.addEventListener("click", (event) => {
+  if (event.target.closest(".action-menu-item")) {
+    event.currentTarget.removeAttribute("open");
+  }
+});
 
 gearList.addEventListener("click", (event) => {
   if (state.readOnly) {
@@ -5300,6 +5375,20 @@ document.addEventListener("keydown", (event) => {
 
   if (event.key.toLowerCase() === "a" && event.shiftKey && !event.metaKey && !event.altKey && !event.ctrlKey) {
     openGearLibrary();
+    event.preventDefault();
+    return;
+  }
+
+  if (event.key.toLowerCase() === "e" && event.shiftKey && !event.metaKey && !event.altKey && !event.ctrlKey) {
+    exportSetup();
+    event.preventDefault();
+    return;
+  }
+
+  if (event.key.toLowerCase() === "i" && event.shiftKey && !event.metaKey && !event.altKey && !event.ctrlKey) {
+    if (!state.readOnly) {
+      importSetupFile.click();
+    }
     event.preventDefault();
     return;
   }

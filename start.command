@@ -23,5 +23,5 @@ if lsof -ti tcp:${PORT} -sTCP:LISTEN > /dev/null; then
   exit 0
 fi
 
-(sleep 1; open "${URL}") &
+(sleep 3; open "${URL}") &
 python3 -m http.server "${PORT}"
