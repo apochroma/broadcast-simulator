@@ -176,15 +176,51 @@
     fadeToBlack(switcherId) {
       const switcher = this.getSwitcher(switcherId);
 
-      if (!switcher || switcher.isTransitioning || switcher.programInput === "black") {
+      if (!switcher || switcher.isTransitioning) {
         return;
       }
 
       this.state.activeSwitcherId = switcher.id;
-      const previousProgram = switcher.programInput;
       const durationMs = this.callbacks.getSwitcherTransitionDurationMs(switcher);
       const blackSource = this.callbacks.getSwitcherMediaSource("black");
+
+      if (switcher.isFadeToBlackActive || switcher.programInput === "black") {
+        const nextProgram = switcher.fadeToBlackReturnInput ?? switcher.previewInput;
+
+        if (!nextProgram || nextProgram === "black") {
+          return;
+        }
+
+        switcher.transition = {
+          switcherId: switcher.id,
+          fromInput: "black",
+          toInput: nextProgram,
+          fromSource: blackSource,
+          toSource: this.callbacks.getSwitcherInputSource(switcher, nextProgram),
+          durationMs
+        };
+        this.state.activeTransition = switcher.transition;
+        switcher.isTransitioning = true;
+        switcher.isFadingToBlack = true;
+        this.callbacks.render();
+
+        window.setTimeout(() => {
+          switcher.programInput = nextProgram;
+          switcher.isFadeToBlackActive = false;
+          switcher.isTransitioning = false;
+          switcher.isFadingToBlack = false;
+          switcher.transition = null;
+          switcher.fadeToBlackReturnInput = null;
+          this.state.activeTransition = null;
+          this.callbacks.render();
+        }, durationMs);
+
+        return;
+      }
+
+      const previousProgram = switcher.programInput;
       this.callbacks.beginAudioFadeToBlack(switcher, durationMs);
+      switcher.fadeToBlackReturnInput = previousProgram;
       switcher.transition = {
         switcherId: switcher.id,
         fromInput: previousProgram,

@@ -124,6 +124,7 @@ let connectionController = null;
 let atemController = null;
 let atemAudioController = null;
 let atemMediaController = null;
+let deviceRenderer = null;
 
 function addGear(type, customTemplate) {
   const resolvedType = legacyGearAliases[type] ?? type;
@@ -209,7 +210,7 @@ function getSpawnPosition(type, countOfType, width = 280) {
 
 function render() {
   document.body.classList.toggle("is-read-only", state.readOnly);
-  deviceLayer.innerHTML = state.nodes.map(renderNode).join("");
+  deviceLayer.innerHTML = state.nodes.map((node) => deviceRenderer.renderNode(node)).join("");
   emptyState.classList.toggle("is-hidden", state.nodes.length > 0);
   if (programStatus) {
     programStatus.textContent = getProgramStatus();
@@ -234,121 +235,6 @@ function renderGearList() {
       <span>${family} · ${description}</span>
     </button>
   `).join("") || `<div class="empty-search">Keine passenden Devices</div>`;
-}
-
-function renderNode(node) {
-  ensureMonitorLoopOutputs(node);
-  ensureSourceIdentity(node);
-  if (node.type === "switcher") {
-    ensureSwitcherMediaPools(node);
-  }
-  const programSource = getSwitcherProgramSource(getActiveSwitcher());
-  const previewSource = getSwitcherPreviewSource(getActiveSwitcher());
-  const classes = [
-    "node",
-    node.type,
-    node.isTransitioning ? "is-transitioning" : "",
-    node.isFadingToBlack ? "is-fading-to-black" : "",
-    node.cutFlashing ? "is-cut-flashing" : "",
-    isNodeSelected(node.id) ? "is-selected" : "",
-    programSource?.id === node.id ? "is-program" : "",
-    previewSource?.id === node.id ? "is-preview" : ""
-  ].filter(Boolean).join(" ");
-
-  return `
-    <article class="${classes}"
-      data-node-id="${node.id}"
-      style="width: ${node.width}px; transform: translate(${node.position.x}px, ${node.position.y}px); --transition-duration: ${getSwitcherTransitionDurationMs(node)}ms">
-      ${renderSockets(node, "input")}
-      ${renderSockets(node, "output")}
-      <div class="node-header drag-handle">
-        <div>
-          <p class="node-kicker">${node.kicker}</p>
-          <h2>${node.title}</h2>
-        </div>
-        <div class="node-actions ${state.readOnly ? "is-hidden" : ""}">
-          ${node.type === "switcher" ? renderSwitcherModeButton(node) : ""}
-          <button class="small-button" type="button" data-action="edit-node" data-node-id="${node.id}">Bearbeiten</button>
-          <button class="small-button danger" type="button" data-action="remove-node" data-node-id="${node.id}">Entfernen</button>
-        </div>
-      </div>
-      <div class="node-body">
-        ${renderNodeBody(node)}
-      </div>
-    </article>
-  `;
-}
-
-function renderSwitcherModeButton(switcher) {
-  const isCutBus = getSwitcherBusMode(switcher) === "cutBus";
-  const label = isCutBus ? "CUT-Bus" : "PGM/PRV";
-
-  return `
-    <button class="small-button switcher-mode-button ${isCutBus ? "is-cut-bus" : ""}"
-      type="button"
-      data-action="toggle-switcher-bus-mode"
-      data-node-id="${switcher.id}">
-      ${label}
-    </button>
-  `;
-}
-
-function renderNodeBody(node) {
-  if (isDisplaySourceNode(node)) {
-    return `
-      <button class="source-visual" type="button" data-action="cycle-source-view" data-node-id="${node.id}">
-        ${renderSourcePreview(node)}
-      </button>
-      <div class="node-meta">
-        <span>${node.shortName}</span>
-        ${node.type === "computer"
-          ? `<button class="small-button ${state.readOnly ? "is-hidden" : ""}" type="button" data-action="random-media" data-node-id="${node.id}">Random</button>`
-          : `<span>${getSourceViewLabel(node)}</span>`}
-      </div>
-    `;
-  }
-
-  if (node.type === "switcher") {
-    return `
-      <div class="simple-device-face switcher-title-face">${node.title}</div>
-      <div class="switcher-display">
-        <span>Program / Preview</span>
-        <strong>${getSwitcherReadout(node)}</strong>
-      </div>
-      ${renderSwitcherPanel(node)}
-    `;
-  }
-
-  if (node.type === "splitter") {
-    const source = resolveNodeInputSource(node, "input-1");
-    return `
-      <div class="simple-device-face splitter-face">HDMI<br>1 x 5</div>
-      <div class="node-meta">
-        <span>${node.inputs.length} In / ${node.outputs.length} Out</span>
-        <span>${source ? source.shortName : "No Signal"}</span>
-      </div>
-    `;
-  }
-
-  if (node.type === "monitor") {
-    return `
-      <div class="monitor-screen">
-        ${renderMonitorPicture(node)}
-      </div>
-      <div class="monitor-footer">
-        <span class="record-dot"></span>
-        <span>${getMonitorLabel(node)}</span>
-      </div>
-    `;
-  }
-
-  return `
-    <div class="simple-device-face">${node.title}</div>
-    <div class="node-meta">
-      <span>${node.inputs.length} In / ${node.outputs.length} Out</span>
-      <span>${node.inputs[0]?.signal ?? node.outputs[0]?.signal ?? "Gear"}</span>
-    </div>
-  `;
 }
 
 function isDisplaySourceNode(node) {
@@ -464,79 +350,6 @@ function getAvailableSourceViewModes(node) {
 
   modes.push("product");
   return modes;
-}
-
-function renderSourcePreview(node) {
-  const mode = normalizeSourceViewMode(node);
-
-  if (mode === "media" && node.media && node.media.kind !== "file") {
-    return renderMediaSurface(node);
-  }
-
-  if (mode === "product") {
-    return renderSourceProductPicture(node);
-  }
-
-  return renderSourceColorPicture(node);
-}
-
-function renderSourceColorPicture(node) {
-  return `
-    <div class="test-picture source-color-picture" style="background: ${node.pattern ?? sourceFallbackColor}">
-      <span>${node.title}</span>
-    </div>
-  `;
-}
-
-function renderSourceProductPicture(node) {
-  if (node.image) {
-    return `<img class="source-product-image" src="${node.image}" alt="${node.title}">`;
-  }
-
-  return `
-    <div class="source-product-face">
-      <strong>${node.title}</strong>
-      <span>${node.kicker}</span>
-    </div>
-  `;
-}
-
-function getSourceViewLabel(node) {
-  const mode = normalizeSourceViewMode(node);
-
-  if (mode === "media") {
-    return node.media?.name ?? "Medium";
-  }
-
-  if (mode === "product") {
-    return node.type === "camera" ? "Kamerabild" : "Gerätebild";
-  }
-
-  return "Farbe";
-}
-
-function renderSockets(node, direction) {
-  const ports = node[`${direction}s`] ?? [];
-
-  return ports.map((port) => {
-    const selected = state.selectedSocket
-      && state.selectedSocket.nodeId === node.id
-      && state.selectedSocket.portId === port.id;
-
-    return `
-      <button class="socket is-${direction} ${selected ? "is-selected" : ""}"
-        type="button"
-        data-action="socket"
-        data-node-id="${node.id}"
-        data-port-id="${port.id}"
-        data-direction="${direction}"
-        data-signal="${port.signal}"
-        style="top: ${port.top}%; --socket-color: ${signalColors[port.signal] ?? signalColors.SDI}"
-        title="${port.label} (${port.signal})">
-        <span class="socket-label">${port.label}</span>
-      </button>
-    `;
-  }).join("");
 }
 
 function renderSwitcherPanel(switcher) {
@@ -2070,7 +1883,7 @@ function resolveTransitionFromPort(portRef, visited = new Set()) {
     const ownTransition = getOwnSwitcherTransition(node);
 
     if (ownTransition) {
-      return ownTransition;
+      return getRenderableSwitcherTransition(node, ownTransition, visited);
     }
 
     return resolveSwitcherProgramTransition(node, visited);
@@ -2100,6 +1913,30 @@ function getOwnSwitcherTransition(switcher) {
   return switcher.transition ?? null;
 }
 
+function getRenderableSwitcherTransition(switcher, transition, visited = new Set()) {
+  if (!transition) {
+    return transition;
+  }
+
+  if (transition.toInput !== "black" && transition.fromInput !== "black") {
+    return transition;
+  }
+
+  if (transition.fromInput === "black") {
+    return {
+      ...transition,
+      fromSource: getSwitcherMediaSource("black"),
+      toSource: getSwitcherProgramOutputFeedForInput(switcher, transition.toInput, visited)
+    };
+  }
+
+  return {
+    ...transition,
+    fromSource: getSwitcherProgramOutputFeed(switcher, visited),
+    toSource: getSwitcherMediaSource("black")
+  };
+}
+
 function resolveSwitcherProgramTransition(switcher, visited = new Set()) {
   if (!switcher?.programInput) {
     return null;
@@ -2113,13 +1950,20 @@ function resolveSwitcherProgramTransition(switcher, visited = new Set()) {
 }
 
 function renderTransitionPicture(fromSource, toSource, durationMs = 650) {
+  const fromContent = fromSource?.type
+    ? renderFeedPicture(fromSource)
+    : (fromSource ? renderSignalPicture(fromSource) : renderNoSignalPicture());
+  const toContent = toSource?.type
+    ? renderFeedPicture(toSource)
+    : (toSource ? renderSignalPicture(toSource) : renderNoSignalPicture());
+
   return `
     <div class="transition-picture" style="--transition-duration: ${durationMs}ms">
       <div class="transition-layer is-from">
-        ${fromSource ? renderSignalPicture(fromSource) : renderNoSignalPicture()}
+        ${fromContent}
       </div>
       <div class="transition-layer is-to">
-        ${toSource ? renderSignalPicture(toSource) : renderNoSignalPicture()}
+        ${toContent}
       </div>
     </div>
   `;
@@ -2132,7 +1976,7 @@ function renderSignalPicture(source) {
 
   if (isDisplaySourceNode(source)) {
     ensureSourceIdentity(source);
-    return renderSourcePreview(source);
+    return deviceRenderer.renderSourcePreview(source);
   }
 
   if (source.media) {
@@ -2147,7 +1991,7 @@ function renderSignalPicture(source) {
 }
 
 function renderPipPicture(switcher, programFeed) {
-  if (!switcher.pipEnabled) {
+  if (!switcher.pipEnabled || isBlackFeed(programFeed)) {
     return renderFeedPicture(programFeed);
   }
 
@@ -2166,6 +2010,10 @@ function renderPipPicture(switcher, programFeed) {
       }).join("")}
     </div>
   `;
+}
+
+function isBlackFeed(feed) {
+  return getFeedPrimarySource(feed)?.id === "black";
 }
 
 function renderMediaSurface(source) {
@@ -2380,6 +2228,18 @@ function getSwitcherPreviewSource(switcher) {
 
 function getSwitcherProgramOutputFeed(switcher, visited = new Set()) {
   const feed = getSwitcherProgramFeed(switcher, visited);
+
+  return {
+    type: "program",
+    connected: true,
+    source: getFeedPrimarySource(feed),
+    programFeed: feed,
+    pipSwitcher: switcher
+  };
+}
+
+function getSwitcherProgramOutputFeedForInput(switcher, input, visited = new Set()) {
+  const feed = getSwitcherInputFeed(switcher, input, visited);
 
   return {
     type: "program",
@@ -2710,6 +2570,33 @@ atemMediaController = new BroadcastAtemMedia.AtemMediaPoolController({
     fileInput: mediaPoolFileInput,
     grid: mediaPoolGrid,
     heading: mediaPoolHeading
+  },
+  state
+});
+
+deviceRenderer = new BroadcastDeviceRenderers.DeviceRenderer({
+  callbacks: {
+    ensureMonitorLoopOutputs,
+    ensureSourceIdentity,
+    ensureSwitcherMediaPools,
+    getActiveSwitcher,
+    getMonitorLabel,
+    getSwitcherBusMode,
+    getSwitcherPreviewSource,
+    getSwitcherProgramSource,
+    getSwitcherReadout,
+    getSwitcherTransitionDurationMs,
+    isDisplaySourceNode,
+    isNodeSelected,
+    normalizeSourceViewMode,
+    renderMediaSurface,
+    renderMonitorPicture,
+    renderSwitcherPanel,
+    resolveNodeInputSource
+  },
+  config: {
+    signalColors,
+    sourceFallbackColor
   },
   state
 });
