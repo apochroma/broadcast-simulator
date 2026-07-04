@@ -121,6 +121,7 @@ let suppressNextGainClick = false;
 let activeGainDrag = null;
 let activeChannelFaderDrag = null;
 let connectionController = null;
+let atemController = null;
 
 function addGear(type, customTemplate) {
   const resolvedType = legacyGearAliases[type] ?? type;
@@ -2659,7 +2660,7 @@ function openMediaPool(switcherId, playerId) {
     return;
   }
 
-  selectPreview(switcherId, playerId);
+  atemController.selectPreview(switcherId, playerId);
   ensureSwitcherMediaPools(switcher);
   state.activeMediaPool = { switcherId, playerId };
   state.pendingMediaPoolImage = null;
@@ -2932,6 +2933,24 @@ connectionController = new BroadcastConnections.ConnectionController({
     cableLayer,
     deviceLayer,
     workspace
+  },
+  state
+});
+
+atemController = new BroadcastAtem.AtemController({
+  callbacks: {
+    beginAudioFadeForProgramChange,
+    beginAudioFadeToBlack,
+    clamp,
+    getNode,
+    getSwitcherBusMode,
+    getSwitcherInputSource,
+    getSwitcherMediaSource,
+    getSwitcherPipPreset,
+    getSwitcherTransitionDurationMs,
+    hasPipPreset: (presetId) => pipPresets.some((preset) => preset.id === presetId),
+    normalizeSwitcherBusSource,
+    render
   },
   state
 });
@@ -3455,202 +3474,6 @@ function removeNodes(nodeIds) {
   render();
 }
 
-function selectPreview(switcherId, input) {
-  const switcher = getNode(switcherId);
-
-  if (switcher?.type === "switcher") {
-    state.activeSwitcherId = switcher.id;
-    const source = normalizeSwitcherBusSource(input);
-
-    if (getSwitcherBusMode(switcher) === "cutBus") {
-      const previousProgram = switcher.programInput;
-      switcher.programInput = source;
-      switcher.isFadeToBlackActive = source === "black";
-      beginAudioFadeForProgramChange(switcher, previousProgram, source);
-    } else {
-      switcher.previewInput = source;
-    }
-
-    render();
-  }
-}
-
-function toggleSwitcherBusMode(switcherId) {
-  const switcher = getNode(switcherId);
-
-  if (switcher?.type !== "switcher") {
-    return;
-  }
-
-  switcher.busMode = getSwitcherBusMode(switcher) === "cutBus" ? "pgmPrv" : "cutBus";
-  state.activeSwitcherId = switcher.id;
-  render();
-}
-
-function setTransitionDuration(switcherId, duration) {
-  const switcher = getNode(switcherId);
-  const nextDuration = Number(duration);
-
-  if (switcher?.type !== "switcher" || ![0.5, 1, 1.5, 2].includes(nextDuration)) {
-    return;
-  }
-
-  switcher.transitionDuration = nextDuration;
-  state.activeSwitcherId = switcher.id;
-  render();
-}
-
-function setSwitcherStatus(switcherId, status, enabled) {
-  const switcher = getNode(switcherId);
-
-  if (switcher?.type !== "switcher") {
-    return;
-  }
-
-  if (status === "recording") {
-    switcher.isRecording = enabled === "true";
-  }
-
-  if (status === "streaming") {
-    switcher.isStreaming = enabled === "true";
-  }
-
-  state.activeSwitcherId = switcher.id;
-  render();
-}
-
-function setMultiviewOutput(switcherId, mode, input = "") {
-  const switcher = getNode(switcherId);
-
-  if (switcher?.type !== "switcher" || !["multiview", "program", "preview", "clean", "input"].includes(mode)) {
-    return;
-  }
-
-  switcher.multiviewMode = mode;
-  switcher.multiviewInput = mode === "input"
-    ? clamp(Number(input), 1, Math.max(switcher.inputCount ?? 1, 1))
-    : null;
-  state.activeSwitcherId = switcher.id;
-  render();
-}
-
-function setPipEnabled(switcherId, enabled) {
-  const switcher = getNode(switcherId);
-
-  if (switcher?.type !== "switcher") {
-    return;
-  }
-
-  switcher.pipEnabled = enabled === true || enabled === "true";
-  switcher.pipPreset = getSwitcherPipPreset(switcher);
-  state.activeSwitcherId = switcher.id;
-  render();
-}
-
-function setPipPreset(switcherId, presetId) {
-  const switcher = getNode(switcherId);
-
-  if (switcher?.type !== "switcher" || !pipPresets.some((preset) => preset.id === presetId)) {
-    return;
-  }
-
-  switcher.pipPreset = presetId;
-  state.activeSwitcherId = switcher.id;
-  render();
-}
-
-function cut(switcherId) {
-  const switcher = getNode(switcherId);
-
-  if (switcher?.type === "switcher" && switcher.previewInput) {
-    state.activeSwitcherId = switcher.id;
-    const previousProgram = switcher.programInput;
-    switcher.programInput = switcher.previewInput;
-    switcher.isFadeToBlackActive = switcher.programInput === "black";
-    switcher.previewInput = previousProgram ?? switcher.previewInput;
-    beginAudioFadeForProgramChange(switcher, previousProgram, switcher.programInput);
-    switcher.cutFlashing = true;
-    render();
-
-    window.setTimeout(() => {
-      switcher.cutFlashing = false;
-      render();
-    }, 300);
-  }
-}
-
-function auto(switcherId) {
-  const switcher = getNode(switcherId);
-
-  if (!switcher?.previewInput || switcher.isTransitioning) {
-    return;
-  }
-
-  state.activeSwitcherId = switcher.id;
-  const previousProgram = switcher.programInput;
-  const nextProgram = switcher.previewInput;
-  const durationMs = getSwitcherTransitionDurationMs(switcher);
-  switcher.transition = {
-    switcherId: switcher.id,
-    fromInput: previousProgram,
-    toInput: nextProgram,
-    fromSource: previousProgram ? getSwitcherInputSource(switcher, previousProgram) : null,
-    toSource: getSwitcherInputSource(switcher, nextProgram),
-    durationMs
-  };
-  state.activeTransition = switcher.transition;
-  switcher.isTransitioning = true;
-  render();
-
-  window.setTimeout(() => {
-    switcher.programInput = nextProgram;
-    switcher.isFadeToBlackActive = nextProgram === "black";
-    switcher.previewInput = previousProgram ?? switcher.previewInput;
-    beginAudioFadeForProgramChange(switcher, previousProgram, nextProgram);
-    switcher.isTransitioning = false;
-    switcher.transition = null;
-    state.activeTransition = null;
-    render();
-  }, durationMs);
-}
-
-function fadeToBlack(switcherId) {
-  const switcher = getNode(switcherId);
-
-  if (switcher?.type !== "switcher" || switcher.isTransitioning || switcher.programInput === "black") {
-    return;
-  }
-
-  state.activeSwitcherId = switcher.id;
-  const previousProgram = switcher.programInput;
-  const durationMs = getSwitcherTransitionDurationMs(switcher);
-  const blackSource = getSwitcherMediaSource("black");
-  beginAudioFadeToBlack(switcher, durationMs);
-  switcher.transition = {
-    switcherId: switcher.id,
-    fromInput: previousProgram,
-    toInput: "black",
-    fromSource: previousProgram ? getSwitcherInputSource(switcher, previousProgram) : null,
-    toSource: blackSource,
-    durationMs
-  };
-  state.activeTransition = switcher.transition;
-  switcher.isTransitioning = true;
-  switcher.isFadingToBlack = true;
-  switcher.isFadeToBlackActive = false;
-  render();
-
-  window.setTimeout(() => {
-    switcher.programInput = "black";
-    switcher.isFadeToBlackActive = true;
-    switcher.isTransitioning = false;
-    switcher.isFadingToBlack = false;
-    switcher.transition = null;
-    state.activeTransition = null;
-    render();
-  }, durationMs);
-}
-
 function getNode(nodeId) {
   return state.nodes.find((node) => node.id === nodeId);
 }
@@ -4135,7 +3958,7 @@ deviceLayer.addEventListener("click", (event) => {
   }
 
   if (action === "select-preview") {
-    selectPreview(actionTarget.dataset.nodeId, actionTarget.dataset.input);
+    atemController.selectPreview(actionTarget.dataset.nodeId, actionTarget.dataset.input);
   }
 
   if (action === "open-media-pool") {
@@ -4179,23 +4002,23 @@ deviceLayer.addEventListener("click", (event) => {
   }
 
   if (action === "set-transition-duration") {
-    setTransitionDuration(actionTarget.dataset.nodeId, actionTarget.dataset.duration);
+    atemController.setTransitionDuration(actionTarget.dataset.nodeId, actionTarget.dataset.duration);
   }
 
   if (action === "set-switcher-status") {
-    setSwitcherStatus(actionTarget.dataset.nodeId, actionTarget.dataset.status, actionTarget.dataset.enabled);
+    atemController.setStatus(actionTarget.dataset.nodeId, actionTarget.dataset.status, actionTarget.dataset.enabled);
   }
 
   if (action === "set-multiview-output") {
-    setMultiviewOutput(actionTarget.dataset.nodeId, actionTarget.dataset.viewMode, actionTarget.dataset.input);
+    atemController.setMultiviewOutput(actionTarget.dataset.nodeId, actionTarget.dataset.viewMode, actionTarget.dataset.input);
   }
 
   if (action === "set-pip-enabled") {
-    setPipEnabled(actionTarget.dataset.nodeId, actionTarget.dataset.enabled);
+    atemController.setPipEnabled(actionTarget.dataset.nodeId, actionTarget.dataset.enabled);
   }
 
   if (action === "set-pip-preset") {
-    setPipPreset(actionTarget.dataset.nodeId, actionTarget.dataset.pipPreset);
+    atemController.setPipPreset(actionTarget.dataset.nodeId, actionTarget.dataset.pipPreset);
   }
 
   if (action === "cycle-source-view") {
@@ -4207,19 +4030,19 @@ deviceLayer.addEventListener("click", (event) => {
   }
 
   if (action === "cut") {
-    cut(actionTarget.dataset.nodeId);
+    atemController.cut(actionTarget.dataset.nodeId);
   }
 
   if (action === "auto") {
-    auto(actionTarget.dataset.nodeId);
+    atemController.auto(actionTarget.dataset.nodeId);
   }
 
   if (action === "ftb") {
-    fadeToBlack(actionTarget.dataset.nodeId);
+    atemController.fadeToBlack(actionTarget.dataset.nodeId);
   }
 
   if (action === "toggle-switcher-bus-mode") {
-    toggleSwitcherBusMode(actionTarget.dataset.nodeId);
+    atemController.toggleBusMode(actionTarget.dataset.nodeId);
   }
 
   if (action === "remove-node") {
