@@ -123,6 +123,7 @@ let activeChannelFaderDrag = null;
 let connectionController = null;
 let atemController = null;
 let atemAudioController = null;
+let atemMediaController = null;
 
 function addGear(type, customTemplate) {
   const resolvedType = legacyGearAliases[type] ?? type;
@@ -214,7 +215,7 @@ function render() {
     programStatus.textContent = getProgramStatus();
   }
   renderAudioMeterPopover();
-  renderMediaPoolDialog();
+  atemMediaController.renderDialog();
   renderGearList();
   renderZoom();
   requestAnimationFrame(renderLines);
@@ -2462,139 +2463,6 @@ function getSwitcherBusSourceLabel(source) {
   return mediaSource ? mediaSource.label : source;
 }
 
-function openMediaPool(switcherId, playerId) {
-  const switcher = getNode(switcherId);
-
-  if (switcher?.type !== "switcher" || !["mp1", "mp2"].includes(playerId)) {
-    return;
-  }
-
-  atemController.selectPreview(switcherId, playerId);
-  ensureSwitcherMediaPools(switcher);
-  state.activeMediaPool = { switcherId, playerId };
-  state.pendingMediaPoolImage = null;
-  updateMediaPoolCursor();
-  renderMediaPoolDialog();
-  mediaPoolDialog?.showModal();
-}
-
-function closeMediaPool() {
-  state.activeMediaPool = null;
-  state.pendingMediaPoolImage = null;
-  updateMediaPoolCursor();
-  if (mediaPoolDialog?.open) {
-    mediaPoolDialog.close();
-  }
-}
-
-function getActiveMediaPool() {
-  const activePool = state.activeMediaPool;
-  const switcher = activePool ? getNode(activePool.switcherId) : null;
-
-  if (switcher?.type !== "switcher" || !["mp1", "mp2"].includes(activePool.playerId)) {
-    return null;
-  }
-
-  ensureSwitcherMediaPools(switcher);
-  return {
-    switcher,
-    playerId: activePool.playerId,
-    pool: switcher.mediaPools[activePool.playerId]
-  };
-}
-
-function renderMediaPoolDialog() {
-  if (!mediaPoolDialog || !mediaPoolGrid || !mediaPoolHeading) {
-    return;
-  }
-
-  const activePool = getActiveMediaPool();
-
-  if (!activePool) {
-    mediaPoolGrid.innerHTML = "";
-    return;
-  }
-
-  const { switcher, playerId, pool } = activePool;
-  mediaPoolHeading.textContent = `${switcher.title} ${playerId.toUpperCase()}`;
-  mediaPoolGrid.innerHTML = pool.slots.map((slot, index) => {
-    const isSelected = pool.selectedSlot === index;
-    const slotContent = slot
-      ? `<img src="${slot.url}" alt="${slot.name}"><span>${index + 1}</span>`
-      : `<strong>${index + 1}</strong><em>Leer</em>`;
-
-    return `
-      <button class="media-pool-slot ${isSelected ? "is-selected" : ""} ${slot ? "has-media" : ""}"
-        type="button"
-        data-action="set-media-pool-slot"
-        data-slot-index="${index}"
-        aria-pressed="${isSelected}">
-        ${slotContent}
-      </button>
-    `;
-  }).join("");
-}
-
-async function createImageMediaFromFile(file) {
-  return {
-    kind: "image",
-    name: file.name,
-    url: await fileToDataUrl(file)
-  };
-}
-
-async function preparePendingMediaPoolImage(file) {
-  if (!file?.type.startsWith("image/")) {
-    return;
-  }
-
-  state.pendingMediaPoolImage = await createImageMediaFromFile(file);
-  updateMediaPoolCursor();
-}
-
-async function putMediaPoolImageInSlot(slotIndex, fileOrMedia = state.pendingMediaPoolImage) {
-  const activePool = getActiveMediaPool();
-
-  if (!activePool || !Number.isInteger(slotIndex)) {
-    return;
-  }
-
-  const media = fileOrMedia instanceof File
-    ? await createImageMediaFromFile(fileOrMedia)
-    : fileOrMedia;
-
-  if (!media) {
-    activePool.pool.selectedSlot = clamp(slotIndex, 0, MEDIA_POOL_SLOT_COUNT - 1);
-    render();
-    return;
-  }
-
-  activePool.pool.slots[slotIndex] = { ...media };
-  activePool.pool.selectedSlot = slotIndex;
-  state.pendingMediaPoolImage = null;
-  updateMediaPoolCursor();
-  render();
-}
-
-function updateMediaPoolCursor(event = null) {
-  if (!mediaPoolCursor) {
-    return;
-  }
-
-  const media = state.pendingMediaPoolImage;
-  mediaPoolCursor.classList.toggle("is-hidden", !media);
-
-  if (!media) {
-    mediaPoolCursor.innerHTML = "";
-    return;
-  }
-
-  mediaPoolCursor.innerHTML = `<img src="${media.url}" alt="">`;
-  if (event) {
-    mediaPoolCursor.style.transform = `translate(${event.clientX + 16}px, ${event.clientY + 16}px)`;
-  }
-}
-
 function resolveNodeInputSource(node, portId, visited = new Set()) {
   const connection = state.connections.find((item) => (
     item.to.nodeId === node.id && item.to.portId === portId
@@ -2784,6 +2652,28 @@ atemAudioController = new BroadcastAtemAudio.AtemAudioController({
     showAudioMeter,
     updateChannelFaderState
   }
+});
+
+atemMediaController = new BroadcastAtemMedia.AtemMediaPoolController({
+  callbacks: {
+    clamp,
+    ensureSwitcherMediaPools,
+    fileToDataUrl,
+    getNode,
+    render,
+    selectPreview: (switcherId, playerId) => atemController.selectPreview(switcherId, playerId)
+  },
+  config: {
+    slotCount: MEDIA_POOL_SLOT_COUNT
+  },
+  elements: {
+    cursor: mediaPoolCursor,
+    dialog: mediaPoolDialog,
+    fileInput: mediaPoolFileInput,
+    grid: mediaPoolGrid,
+    heading: mediaPoolHeading
+  },
+  state
 });
 
 function cycleSourceView(nodeId) {
@@ -3767,7 +3657,7 @@ deviceLayer.addEventListener("click", (event) => {
   }
 
   if (actionTarget.dataset.mediaPlayer && event.detail >= 2) {
-    openMediaPool(actionTarget.dataset.nodeId, actionTarget.dataset.mediaPlayer);
+    atemMediaController.open(actionTarget.dataset.nodeId, actionTarget.dataset.mediaPlayer);
     event.preventDefault();
     return;
   }
@@ -3793,7 +3683,7 @@ deviceLayer.addEventListener("click", (event) => {
   }
 
   if (action === "open-media-pool") {
-    openMediaPool(actionTarget.dataset.nodeId, actionTarget.dataset.mediaPlayer);
+    atemMediaController.open(actionTarget.dataset.nodeId, actionTarget.dataset.mediaPlayer);
   }
 
   if (action === "set-audio-source") {
@@ -3897,7 +3787,7 @@ deviceLayer.addEventListener("dblclick", (event) => {
   }
 
   event.preventDefault();
-  openMediaPool(mediaPlayerButton.dataset.nodeId, mediaPlayerButton.dataset.mediaPlayer);
+  atemMediaController.open(mediaPlayerButton.dataset.nodeId, mediaPlayerButton.dataset.mediaPlayer);
 });
 
 cableLayer.addEventListener("dblclick", (event) => {
@@ -4031,58 +3921,31 @@ audioMeterPopover?.addEventListener("click", (event) => {
 });
 
 mediaPoolDialog?.addEventListener("close", () => {
-  state.activeMediaPool = null;
-  state.pendingMediaPoolImage = null;
-  updateMediaPoolCursor();
+  atemMediaController.handleDialogClose();
 });
 
 document.querySelector("#pickMediaPoolImage")?.addEventListener("click", () => {
-  mediaPoolFileInput?.click();
+  atemMediaController.openFilePicker();
 });
 
 mediaPoolFileInput?.addEventListener("change", async (event) => {
-  const file = event.target.files?.[0];
-
-  if (file) {
-    await preparePendingMediaPoolImage(file);
-  }
-
-  event.target.value = "";
+  await atemMediaController.handleFileInputChange(event);
 });
 
 mediaPoolGrid?.addEventListener("click", (event) => {
-  const slot = event.target.closest("[data-action='set-media-pool-slot']");
-
-  if (!slot) {
-    return;
-  }
-
-  putMediaPoolImageInSlot(Number(slot.dataset.slotIndex));
+  atemMediaController.handleGridClick(event);
 });
 
 mediaPoolGrid?.addEventListener("dragover", (event) => {
-  if (!event.dataTransfer?.types.includes("Files")) {
-    return;
-  }
-
-  event.preventDefault();
-  event.dataTransfer.dropEffect = "copy";
+  atemMediaController.handleGridDragOver(event);
 });
 
 mediaPoolGrid?.addEventListener("drop", async (event) => {
-  const slot = event.target.closest("[data-action='set-media-pool-slot']");
-  const file = event.dataTransfer?.files?.[0];
-
-  if (!slot || !file?.type.startsWith("image/")) {
-    return;
-  }
-
-  event.preventDefault();
-  await putMediaPoolImageInSlot(Number(slot.dataset.slotIndex), file);
+  await atemMediaController.handleGridDrop(event);
 });
 
 document.addEventListener("pointermove", (event) => {
-  updateMediaPoolCursor(event);
+  atemMediaController.updateCursor(event);
 });
 
 deviceLayer.addEventListener("dragover", (event) => {
