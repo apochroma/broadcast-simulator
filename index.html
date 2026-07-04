@@ -4,14 +4,14 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Broadcast Signalfluss Simulation</title>
-    <link rel="stylesheet" href="styles.css?v=compact-toolbar-1">
+    <link rel="stylesheet" href="styles.css?v=menu-about-2">
   </head>
   <body>
     <main class="app-shell">
       <div class="toolbar">
         <section class="library" aria-label="Gear Bibliothek">
           <details class="action-menu">
-            <summary class="library-button">Aktionen</summary>
+            <summary class="library-button">Menu</summary>
             <div class="action-menu-panel">
               <button class="action-menu-item" type="button" id="openGearLibrary">
                 <span>Add Gear</span>
@@ -27,6 +27,9 @@
               </button>
               <button class="action-menu-item" type="button" id="shareSetup">
                 <span>Share Link</span>
+              </button>
+              <button class="action-menu-item action-menu-about" type="button" id="openAboutDialog">
+                <span>About</span>
               </button>
             </div>
           </details>
@@ -57,6 +60,33 @@
     </main>
     <aside class="audio-meter-popover is-hidden" id="audioMeterPopover" aria-live="polite"></aside>
     <div class="media-pool-cursor is-hidden" id="mediaPoolCursor" aria-hidden="true"></div>
+
+    <dialog class="gear-dialog about-dialog" id="aboutDialog">
+      <form class="gear-dialog-card" method="dialog">
+        <header class="dialog-header">
+          <div>
+            <p class="eyebrow">About</p>
+            <h2>Broadcast Patchfläche</h2>
+          </div>
+          <button class="icon-button" value="cancel" aria-label="Dialog schließen">x</button>
+        </header>
+
+        <section class="about-copy">
+          <p>
+            Diese App ist ein interaktiver Prototyp zur Simulation von Broadcast-Signalflüssen,
+            ATEM-Bildmischern, Quellen, Monitoren, Medienplayern und Audiowegen.
+          </p>
+          <p>
+            Konzept, Idee und fachliche Richtung stammen von Claus Pfisterer. Die Umsetzung wurde
+            gemeinsam mit KI-Unterstützung entwickelt.
+          </p>
+          <p>
+            Ziel ist eine verständliche, visuelle Lern- und Planungsoberfläche für typische
+            Broadcast-Setups.
+          </p>
+        </section>
+      </form>
+    </dialog>
 
     <dialog class="gear-dialog" id="gearDialog">
       <form class="gear-dialog-card" method="dialog">
@@ -187,6 +217,7 @@
       </form>
     </dialog>
 
-    <script src="app.js?v=compact-toolbar-1"></script>
+    <script src="device-catalog.js?v=device-catalog-1"></script>
+    <script src="app.js?v=device-catalog-1"></script>
   </body>
 </html>
