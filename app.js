@@ -120,11 +120,14 @@ let gainHoldInterval = null;
 let suppressNextGainClick = false;
 let activeGainDrag = null;
 let activeChannelFaderDrag = null;
+let activePtzJoystickDrag = null;
+let ptzAnimationFrame = null;
 let connectionController = null;
 let atemController = null;
 let atemAudioController = null;
 let atemMediaController = null;
 let deviceRenderer = null;
+const ptzProjectionImages = new Map();
 
 function addGear(type, customTemplate) {
   const resolvedType = legacyGearAliases[type] ?? type;
@@ -219,7 +222,10 @@ function render() {
   atemMediaController.renderDialog();
   renderGearList();
   renderZoom();
-  requestAnimationFrame(renderLines);
+  requestAnimationFrame(() => {
+    renderLines();
+    renderPtzProjectionCanvases();
+  });
 }
 
 function renderGearList() {
@@ -1976,7 +1982,7 @@ function renderSignalPicture(source) {
 
   if (isDisplaySourceNode(source)) {
     ensureSourceIdentity(source);
-    return deviceRenderer.renderSourcePreview(source);
+    return renderProgramSourcePicture(source);
   }
 
   if (source.media) {
@@ -1986,6 +1992,62 @@ function renderSignalPicture(source) {
   return `
     <div class="test-picture" style="background: ${source.pattern ?? sourceFallbackColor}">
       <span>${source.title}</span>
+    </div>
+  `;
+}
+
+function renderProgramSourcePicture(source) {
+  if (isPtzPanoramaSource(source)) {
+    return renderPtzPanoramaPicture(source);
+  }
+
+  return deviceRenderer.renderSourcePreview(source);
+}
+
+function isPtzPanoramaSource(source) {
+  if (!source?.media || source.media.kind !== "image") {
+    return false;
+  }
+
+  if (!source.media.isEquirectangular && isEquirectangularImage(source.media.name, source.media.width, source.media.height)) {
+    source.media.isEquirectangular = true;
+  }
+
+  if (!source.media.isEquirectangular && source.media.url) {
+    const image = getPtzProjectionImage(source.media.url);
+
+    if (image.complete && image.naturalWidth && image.naturalHeight) {
+      source.media.width = image.naturalWidth;
+      source.media.height = image.naturalHeight;
+      source.media.isEquirectangular = isEquirectangularImage(source.media.name, image.naturalWidth, image.naturalHeight);
+    } else if (!source.media.equirectangularCheckPending) {
+      source.media.equirectangularCheckPending = true;
+      image.addEventListener("load", () => {
+        source.media.width = image.naturalWidth;
+        source.media.height = image.naturalHeight;
+        source.media.isEquirectangular = isEquirectangularImage(source.media.name, image.naturalWidth, image.naturalHeight);
+        source.media.equirectangularCheckPending = false;
+        render();
+      }, { once: true });
+    }
+  }
+
+  return Boolean(source.media.isEquirectangular)
+    || /panorama|equirect|360/i.test(source.media.name ?? "");
+}
+
+function renderPtzPanoramaPicture(source) {
+  const ptz = normalizePtzState(source.ptz);
+  const zoom = clamp(Number(ptz.zoom ?? 1.7), 1.1, 3.2);
+
+  return `
+    <div class="ptz-panorama-view">
+      <canvas class="ptz-panorama-canvas"
+        data-source-id="${source.id}"
+        data-pan="${ptz.pan}"
+        data-tilt="${ptz.tilt}"
+        data-zoom="${zoom}"></canvas>
+      <span>${source.shortName ?? source.title}</span>
     </div>
   `;
 }
@@ -2608,10 +2670,12 @@ deviceRenderer = new BroadcastDeviceRenderers.DeviceRenderer({
     getSwitcherReadout,
     getSwitcherTransitionDurationMs,
     isDisplaySourceNode,
+    isPtzPanoramaSource,
     isNodeSelected,
     normalizeSourceViewMode,
     renderMediaSurface,
     renderMonitorPicture,
+    renderPtzPanoramaPicture,
     renderSwitcherPanel,
     resolveNodeInputSource
   },
@@ -2655,6 +2719,411 @@ function setRandomMedia(nodeId) {
   render();
 }
 
+function selectPtzCamera(nodeId, cameraNumber) {
+  const node = getNode(nodeId);
+
+  if (!node || node.type !== "ptzController" || !Number.isInteger(cameraNumber)) {
+    return;
+  }
+
+  recordUndoSnapshot();
+  node.selectedCamera = cameraNumber;
+  render();
+}
+
+function startPtzJoystickDrag(event, control) {
+  const node = getNode(control.dataset.nodeId);
+
+  if (!node || node.type !== "ptzController") {
+    return;
+  }
+
+  recordUndoSnapshot();
+  const rect = control.getBoundingClientRect();
+  activePtzJoystickDrag = {
+    pointerId: event.pointerId,
+    control,
+    nodeId: node.id,
+    centerX: rect.left + rect.width / 2,
+    centerY: rect.top + rect.height / 2,
+    radius: rect.width * 0.34,
+    lastFrameTime: null,
+    returnFrameTime: null,
+    zoomDirection: getPtzZoomDirection(event)
+  };
+  control.setPointerCapture?.(event.pointerId);
+  updatePtzJoystickDrag(event);
+  startPtzCameraMotion();
+  event.preventDefault();
+  event.stopPropagation();
+}
+
+function updatePtzJoystickDrag(event) {
+  if (!activePtzJoystickDrag || activePtzJoystickDrag.pointerId !== event.pointerId) {
+    return;
+  }
+
+  const node = getNode(activePtzJoystickDrag.nodeId);
+
+  if (!node) {
+    return;
+  }
+
+  const rawX = (event.clientX - activePtzJoystickDrag.centerX) / activePtzJoystickDrag.radius;
+  const rawY = (event.clientY - activePtzJoystickDrag.centerY) / activePtzJoystickDrag.radius;
+  const distance = Math.hypot(rawX, rawY);
+  const scale = distance > 1 ? 1 / distance : 1;
+  const x = clamp(Math.round(rawX * scale * 100) / 100, -1, 1);
+  const y = clamp(Math.round(rawY * scale * 100) / 100, -1, 1);
+
+  node.joystick = { x, y };
+  activePtzJoystickDrag.zoomDirection = getPtzZoomDirection(event);
+  activePtzJoystickDrag.control.style.setProperty("--ptz-joy-x", x);
+  activePtzJoystickDrag.control.style.setProperty("--ptz-joy-y", y);
+  activePtzJoystickDrag.control.setAttribute("aria-valuenow", String(Math.round(Math.hypot(x, y) * 100)));
+  activePtzJoystickDrag.control.setAttribute("aria-label", `Joystick X ${Math.round(x * 100)} Y ${Math.round(y * 100)} Zoom ${activePtzJoystickDrag.zoomDirection}`);
+}
+
+function endPtzJoystickDrag(event) {
+  if (!activePtzJoystickDrag || activePtzJoystickDrag.pointerId !== event.pointerId) {
+    return;
+  }
+
+  activePtzJoystickDrag.control.releasePointerCapture?.(event.pointerId);
+  activePtzJoystickDrag.returnFrameTime = null;
+  startPtzJoystickReturn(activePtzJoystickDrag);
+  activePtzJoystickDrag = null;
+}
+
+function getPtzZoomDirection(event) {
+  if (event.shiftKey) {
+    return 1;
+  }
+
+  if (event.altKey) {
+    return -1;
+  }
+
+  return 0;
+}
+
+function updateActivePtzModifierState(event) {
+  if (!activePtzJoystickDrag) {
+    return;
+  }
+
+  activePtzJoystickDrag.zoomDirection = getPtzZoomDirection(event);
+}
+
+function startPtzCameraMotion() {
+  if (ptzAnimationFrame) {
+    return;
+  }
+
+  ptzAnimationFrame = requestAnimationFrame(tickPtzCameraMotion);
+}
+
+function tickPtzCameraMotion(timestamp) {
+  ptzAnimationFrame = null;
+
+  if (!activePtzJoystickDrag) {
+    return;
+  }
+
+  const drag = activePtzJoystickDrag;
+  const node = getNode(drag.nodeId);
+
+  if (!node) {
+    return;
+  }
+
+  const elapsed = drag.lastFrameTime ? Math.min((timestamp - drag.lastFrameTime) / 1000, 0.05) : 0;
+  drag.lastFrameTime = timestamp;
+
+  if (elapsed > 0) {
+    moveSelectedPtzCamera(
+      node,
+      node.joystick?.x ?? 0,
+      node.joystick?.y ?? 0,
+      drag.zoomDirection ?? 0,
+      elapsed
+    );
+    renderPtzProjectionCanvases();
+  }
+
+  ptzAnimationFrame = requestAnimationFrame(tickPtzCameraMotion);
+}
+
+function startPtzJoystickReturn(drag) {
+  const node = getNode(drag.nodeId);
+
+  if (!node) {
+    render();
+    return;
+  }
+
+  const step = (timestamp) => {
+    const elapsed = drag.returnFrameTime ? Math.min((timestamp - drag.returnFrameTime) / 1000, 0.05) : 0;
+    drag.returnFrameTime = timestamp;
+    const currentX = node.joystick?.x ?? 0;
+    const currentY = node.joystick?.y ?? 0;
+    const stiffness = 12;
+    const nextX = Math.abs(currentX) < 0.01 ? 0 : currentX * Math.max(0, 1 - stiffness * elapsed);
+    const nextY = Math.abs(currentY) < 0.01 ? 0 : currentY * Math.max(0, 1 - stiffness * elapsed);
+
+    node.joystick = { x: nextX, y: nextY };
+    drag.control.style.setProperty("--ptz-joy-x", nextX);
+    drag.control.style.setProperty("--ptz-joy-y", nextY);
+
+    if (nextX || nextY) {
+      requestAnimationFrame(step);
+      return;
+    }
+
+    render();
+  };
+
+  requestAnimationFrame(step);
+}
+
+function moveSelectedPtzCamera(controller, x, y, zoomDirection = 0, elapsed = 1 / 60) {
+  const camera = getPtzControlledCamera(controller);
+
+  if (!camera) {
+    return;
+  }
+
+  const current = normalizePtzState(camera.ptz);
+  const panVelocity = Math.sign(x) * Math.pow(Math.abs(x), 1.35) * 82;
+  const tiltVelocity = Math.sign(y) * Math.pow(Math.abs(y), 1.35) * 48;
+  const zoomVelocity = zoomDirection * 0.85;
+
+  camera.ptz = {
+    ...current,
+    pan: clamp(current.pan + panVelocity * elapsed, -180, 180),
+    tilt: clamp(current.tilt - tiltVelocity * elapsed, -75, 75),
+    zoom: clamp(current.zoom + zoomVelocity * elapsed, 1.1, 3.2)
+  };
+}
+
+function getPtzControlledCamera(controller) {
+  const cameraNumber = Number(controller?.selectedCamera ?? 1);
+
+  if (!Number.isInteger(cameraNumber)) {
+    return null;
+  }
+
+  const activeSwitcher = getActiveSwitcher();
+  const switcherInputSource = activeSwitcher
+    ? resolveNodeInputSource(activeSwitcher, `input-${cameraNumber}`)
+    : null;
+
+  if (switcherInputSource?.type === "camera") {
+    return switcherInputSource;
+  }
+
+  return state.nodes.find((node) => (
+    node.type === "camera"
+    && (
+      node.shortName === `CAM ${cameraNumber}`
+      || node.shortName === `CAM${cameraNumber}`
+      || node.title.endsWith(` ${cameraNumber}`)
+    )
+  )) ?? null;
+}
+
+function normalizePtzState(ptz) {
+  return {
+    pan: clamp(Number(ptz?.pan ?? 0), -180, 180),
+    tilt: clamp(Number(ptz?.tilt ?? 0), -75, 75),
+    zoom: clamp(Number(ptz?.zoom ?? 1.7), 1.1, 3.2)
+  };
+}
+
+function renderConnectedMonitorPictures() {
+  deviceLayer.querySelectorAll("article.node.monitor").forEach((element) => {
+    const monitor = getNode(element.dataset.nodeId);
+    const screen = element.querySelector(".monitor-screen");
+    const footer = element.querySelector(".monitor-footer span:last-child");
+
+    if (!monitor || !screen) {
+      return;
+    }
+
+    screen.innerHTML = renderMonitorPicture(monitor);
+    if (footer) {
+      footer.textContent = getMonitorLabel(monitor);
+    }
+  });
+  renderPtzProjectionCanvases();
+}
+
+function renderPtzProjectionCanvases() {
+  document.querySelectorAll(".ptz-panorama-canvas").forEach((canvas) => {
+    renderPtzProjectionCanvas(canvas);
+  });
+}
+
+function renderPtzProjectionCanvas(canvas) {
+  const source = getNode(canvas.dataset.sourceId);
+  const url = source?.media?.url;
+
+  if (!source || !url) {
+    return;
+  }
+
+  const image = getPtzProjectionImage(url);
+
+  if (!image.complete || !image.naturalWidth || !image.naturalHeight) {
+    image.addEventListener("load", () => renderPtzProjectionCanvas(canvas), { once: true });
+    return;
+  }
+
+  const rect = canvas.getBoundingClientRect();
+  const resolutionScale = Math.min(1, 420 / Math.max(rect.width, 1));
+  const width = Math.max(2, Math.round(rect.width * resolutionScale));
+  const height = Math.max(2, Math.round(rect.height * resolutionScale));
+
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+
+  drawEquirectangularProjection(canvas, image, {
+    pan: Number(source.ptz?.pan ?? canvas.dataset.pan ?? 0),
+    tilt: Number(source.ptz?.tilt ?? canvas.dataset.tilt ?? 0),
+    zoom: Number(source.ptz?.zoom ?? canvas.dataset.zoom ?? 1.7)
+  });
+}
+
+function getPtzProjectionImage(url) {
+  if (ptzProjectionImages.has(url)) {
+    return ptzProjectionImages.get(url);
+  }
+
+  const image = new Image();
+  image.src = url;
+  ptzProjectionImages.set(url, image);
+  return image;
+}
+
+function drawEquirectangularProjection(canvas, image, ptz) {
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+  if (!ctx) {
+    return;
+  }
+
+  const width = canvas.width;
+  const height = canvas.height;
+  const output = ctx.createImageData(width, height);
+  const sourceCanvas = getPtzProjectionSourceCanvas(image);
+  const source = getPtzProjectionSourceData(image, sourceCanvas);
+  const sourceData = source.data;
+  const sourceWidth = sourceCanvas.width;
+  const sourceHeight = sourceCanvas.height;
+  const yaw = degToRad(Number(ptz.pan ?? 0));
+  const pitch = degToRad(clamp(Number(ptz.tilt ?? 0), -84, 84));
+  const zoom = clamp(Number(ptz.zoom ?? 1.7), 1.1, 3.2);
+  const horizontalFov = degToRad(82 / zoom);
+  const verticalFov = 2 * Math.atan(Math.tan(horizontalFov / 2) * (height / width));
+  const tanHalfH = Math.tan(horizontalFov / 2);
+  const tanHalfV = Math.tan(verticalFov / 2);
+  const cosYaw = Math.cos(yaw);
+  const sinYaw = Math.sin(yaw);
+  const cosPitch = Math.cos(pitch);
+  const sinPitch = Math.sin(pitch);
+  const targetData = output.data;
+
+  for (let py = 0; py < height; py += 1) {
+    const cameraY = (1 - 2 * ((py + 0.5) / height)) * tanHalfV;
+
+    for (let px = 0; px < width; px += 1) {
+      const cameraX = (2 * ((px + 0.5) / width) - 1) * tanHalfH;
+      const cameraZ = 1;
+
+      const pitchedY = cameraY * cosPitch + cameraZ * sinPitch;
+      const pitchedZ = -cameraY * sinPitch + cameraZ * cosPitch;
+      const worldX = cameraX * cosYaw + pitchedZ * sinYaw;
+      const worldY = pitchedY;
+      const worldZ = -cameraX * sinYaw + pitchedZ * cosYaw;
+      const length = Math.hypot(worldX, worldY, worldZ) || 1;
+      const longitude = Math.atan2(worldX, worldZ);
+      const latitude = Math.asin(clamp(worldY / length, -1, 1));
+      const sourceX = modulo((longitude / (Math.PI * 2) + 0.5) * sourceWidth, sourceWidth);
+      const sourceY = clamp((0.5 - latitude / Math.PI) * sourceHeight, 0, sourceHeight - 1);
+      const sample = sampleEquirectangularPixel(sourceData, sourceWidth, sourceHeight, sourceX, sourceY);
+      const targetIndex = (py * width + px) * 4;
+
+      targetData[targetIndex] = sample[0];
+      targetData[targetIndex + 1] = sample[1];
+      targetData[targetIndex + 2] = sample[2];
+      targetData[targetIndex + 3] = 255;
+    }
+  }
+
+  ctx.putImageData(output, 0, 0);
+}
+
+function getPtzProjectionSourceCanvas(image) {
+  if (image.__ptzProjectionCanvas) {
+    return image.__ptzProjectionCanvas;
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = image.naturalWidth;
+  canvas.height = image.naturalHeight;
+  canvas.getContext("2d").drawImage(image, 0, 0);
+  image.__ptzProjectionCanvas = canvas;
+  return canvas;
+}
+
+function getPtzProjectionSourceData(image, canvas) {
+  if (image.__ptzProjectionData) {
+    return image.__ptzProjectionData;
+  }
+
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  image.__ptzProjectionData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  return image.__ptzProjectionData;
+}
+
+function sampleEquirectangularPixel(data, width, height, x, y) {
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const x1 = (x0 + 1) % width;
+  const y1 = Math.min(y0 + 1, height - 1);
+  const tx = x - x0;
+  const ty = y - y0;
+  const a = getImageDataPixel(data, width, x0, y0);
+  const b = getImageDataPixel(data, width, x1, y0);
+  const c = getImageDataPixel(data, width, x0, y1);
+  const d = getImageDataPixel(data, width, x1, y1);
+
+  return [
+    lerp(lerp(a[0], b[0], tx), lerp(c[0], d[0], tx), ty),
+    lerp(lerp(a[1], b[1], tx), lerp(c[1], d[1], tx), ty),
+    lerp(lerp(a[2], b[2], tx), lerp(c[2], d[2], tx), ty)
+  ];
+}
+
+function getImageDataPixel(data, width, x, y) {
+  const index = (y * width + x) * 4;
+  return [data[index], data[index + 1], data[index + 2]];
+}
+
+function lerp(a, b, amount) {
+  return a + (b - a) * amount;
+}
+
+function modulo(value, divisor) {
+  return ((value % divisor) + divisor) % divisor;
+}
+
+function degToRad(value) {
+  return value * Math.PI / 180;
+}
+
 async function setDroppedFileMedia(nodeId, file) {
   const node = getNode(nodeId);
 
@@ -2665,11 +3134,16 @@ async function setDroppedFileMedia(nodeId, file) {
   revokeNodeMediaUrl(node);
 
   if (file.type.startsWith("image/")) {
+    const url = await fileToDataUrl(file);
+    const imageInfo = await getImageInfo(url);
     node.media = {
       kind: "image",
       name: file.name,
-      url: await fileToDataUrl(file),
-      embedded: true
+      url,
+      embedded: true,
+      width: imageInfo.width,
+      height: imageInfo.height,
+      isEquirectangular: isEquirectangularImage(file.name, imageInfo.width, imageInfo.height)
     };
   } else if (file.type.startsWith("video/")) {
     node.media = { kind: "processing", name: file.name };
@@ -2715,6 +3189,32 @@ function fileToDataUrl(file) {
     reader.addEventListener("error", () => reject(reader.error));
     reader.readAsDataURL(file);
   });
+}
+
+function getImageInfo(url) {
+  return new Promise((resolve) => {
+    const image = new Image();
+
+    image.addEventListener("load", () => resolve({
+      width: image.naturalWidth,
+      height: image.naturalHeight
+    }), { once: true });
+    image.addEventListener("error", () => resolve({ width: 0, height: 0 }), { once: true });
+    image.src = url;
+  });
+}
+
+function isEquirectangularImage(name, width, height) {
+  if (/panorama|equirect|360/i.test(name ?? "")) {
+    return true;
+  }
+
+  if (!width || !height) {
+    return false;
+  }
+
+  const ratio = width / height;
+  return ratio >= 1.85 && ratio <= 2.15;
 }
 
 async function createEmbeddedOriginalVideoMedia(file) {
@@ -3696,6 +4196,10 @@ deviceLayer.addEventListener("click", (event) => {
     setRandomMedia(actionTarget.dataset.nodeId);
   }
 
+  if (action === "select-ptz-camera") {
+    selectPtzCamera(actionTarget.dataset.nodeId, Number(actionTarget.dataset.camera));
+  }
+
   if (action === "cut") {
     atemController.cut(actionTarget.dataset.nodeId);
   }
@@ -3954,6 +4458,13 @@ deviceLayer.addEventListener("pointerdown", (event) => {
     return;
   }
 
+  const ptzJoystick = event.target.closest("[data-action='move-ptz-joystick']");
+
+  if (ptzJoystick) {
+    startPtzJoystickDrag(event, ptzJoystick);
+    return;
+  }
+
   const gainButton = event.target.closest("[data-action='adjust-audio-fader']");
 
   if (gainButton) {
@@ -4098,18 +4609,25 @@ document.addEventListener("pointermove", (event) => {
 
   if (activeChannelFaderDrag && activeChannelFaderDrag.pointerId === event.pointerId) {
     updateChannelFaderDrag(event);
+    return;
+  }
+
+  if (activePtzJoystickDrag && activePtzJoystickDrag.pointerId === event.pointerId) {
+    updatePtzJoystickDrag(event);
   }
 });
 document.addEventListener("pointerup", (event) => {
   stopFaderHold();
   endInputGainDrag(event);
   endChannelFaderDrag(event);
+  endPtzJoystickDrag(event);
   endDrag(event);
 });
 document.addEventListener("pointercancel", (event) => {
   stopFaderHold();
   endInputGainDrag(event);
   endChannelFaderDrag(event);
+  endPtzJoystickDrag(event);
   endDrag(event);
 });
 
@@ -4399,6 +4917,8 @@ function clamp(value, min, max) {
 }
 
 document.addEventListener("keydown", (event) => {
+  updateActivePtzModifierState(event);
+
   if (isTypingTarget(event.target) || isDialogOpen()) {
     return;
   }
@@ -4480,6 +5000,7 @@ document.addEventListener("keydown", (event) => {
     event.preventDefault();
   }
 });
+document.addEventListener("keyup", updateActivePtzModifierState);
 
 workspaceViewport.addEventListener("scroll", renderLines);
 window.addEventListener("resize", renderLines);

@@ -115,6 +115,10 @@
         `;
       }
 
+      if (node.type === "ptzController") {
+        return this.renderPtzController(node);
+      }
+
       return `
         <div class="simple-device-face">${node.title}</div>
         <div class="node-meta">
@@ -124,10 +128,83 @@
       `;
     }
 
+    renderPtzController(node) {
+      const isFly = node.variant === "fly";
+      const cameraButtons = Array.from({ length: isFly ? 6 : 9 }, (_, index) => index + 1);
+      const topControls = isFly
+        ? ["Auto", "Face", "Track", "Speed"]
+        : ["Exp", "WB", "Color", "Image", "Select"];
+      const presetButtons = isFly
+        ? []
+        : Array.from({ length: 10 }, (_, index) => index + 1);
+
+      const joystick = node.joystick ?? { x: 0, y: 0 };
+
+      return `
+        <div class="ptz-panel ${isFly ? "is-fly" : "is-pro"}" style="--ptz-joy-x: ${joystick.x ?? 0}; --ptz-joy-y: ${joystick.y ?? 0};">
+          <div class="ptz-brand">SKAARHOJ</div>
+          <div class="ptz-display">
+            <span>${isFly ? "PTZ Fly" : "PTZ Pro"}</span>
+            <strong>CAM ${node.selectedCamera ?? 1}</strong>
+            <em>PoE / LAN</em>
+          </div>
+          <div class="ptz-joystick"
+            data-action="move-ptz-joystick"
+            data-node-id="${node.id}"
+            role="slider"
+            aria-label="Joystick X ${Math.round((joystick.x ?? 0) * 100)} Y ${Math.round((joystick.y ?? 0) * 100)}"
+            aria-valuemin="-100"
+            aria-valuemax="100"
+            aria-valuenow="${Math.round(Math.hypot(joystick.x ?? 0, joystick.y ?? 0) * 100)}"
+            tabindex="0">
+            <span></span>
+          </div>
+          <div class="ptz-encoders">
+            ${topControls.map((label, index) => `
+              <div class="ptz-encoder">
+                <span class="ptz-knob ptz-ring-${index + 1}"></span>
+                <small>${label}</small>
+              </div>
+            `).join("")}
+          </div>
+          ${presetButtons.length ? `
+            <div class="ptz-preset-grid">
+              ${presetButtons.map((number) => `
+                <button class="ptz-small-key" type="button">${number}</button>
+              `).join("")}
+            </div>
+          ` : ""}
+          <div class="ptz-camera-row">
+            ${cameraButtons.map((number) => {
+              const active = Number(node.selectedCamera ?? 1) === number;
+              return `
+                <button class="ptz-camera-key ${active ? "is-active" : ""}"
+                  type="button"
+                  data-action="select-ptz-camera"
+                  data-node-id="${node.id}"
+                  data-camera="${number}">
+                  <span>Cam ${number}</span>
+                  <strong>${number}</strong>
+                </button>
+              `;
+            }).join("")}
+          </div>
+        </div>
+        <div class="node-meta">
+          <span>PoE Controller</span>
+          <span>CAM ${node.selectedCamera ?? 1}</span>
+        </div>
+      `;
+    }
+
     renderSourcePreview(node) {
       const mode = this.callbacks.normalizeSourceViewMode(node);
 
       if (mode === "media" && node.media && node.media.kind !== "file") {
+        if (this.callbacks.isPtzPanoramaSource?.(node)) {
+          return this.callbacks.renderPtzPanoramaPicture(node);
+        }
+
         return this.callbacks.renderMediaSurface(node);
       }
 

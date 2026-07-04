@@ -53,7 +53,9 @@ window.BroadcastDeviceCatalog = (() => {
         { id: "sdi-out", label: "SDI Out", signal: "SDI", top: 42 },
         { id: "hdmi-out", label: "HDMI Out", signal: "HDMI", top: 58 }
       ]
-    }
+    },
+    skaarhojPtzPro: makePtzControllerTemplate("SKAARHOJ PTZ Pro", "pro"),
+    skaarhojPtzFly: makePtzControllerTemplate("SKAARHOJ PTZ Fly", "fly")
   };
 
   const gearEntries = [
@@ -69,7 +71,9 @@ window.BroadcastDeviceCatalog = (() => {
     ["atemSdiExtremeIso", "Blackmagic ATEM SDI", "ATEM SDI Extreme ISO", "8 SDI Inputs, 2x SDI Out, 2x USB-C, Phones"],
     ["computer", "Playback", "Computer / Playback", "HDMI, USB-C, RJ45 und 3.5mm Line-Out mit Datei-Preview"],
     ["hdmiSplitter", "Distribution", "HDMI Splitter 1x5", "1 HDMI Input, 5 HDMI Outputs"],
-    ["monitor", "Monitoring", "Program Monitor", "SDI/HDMI Input und Loop-Out"]
+    ["monitor", "Monitoring", "Program Monitor", "SDI/HDMI Input und Loop-Out"],
+    ["skaarhojPtzPro", "SKAARHOJ PTZ", "PTZ Pro", "1G Ethernet mit PoE, Joystick, Kamera-Auswahl"],
+    ["skaarhojPtzFly", "SKAARHOJ PTZ", "PTZ Fly", "1G Ethernet mit PoE, kompakter Joystick-Controller"]
   ];
 
   const legacyGearAliases = {
@@ -188,6 +192,22 @@ window.BroadcastDeviceCatalog = (() => {
         ...audioInputs
       ],
       outputs: [...videoOutputs, ...usbPorts, ...headphone]
+    };
+  }
+
+  function makePtzControllerTemplate(title, variant) {
+    return {
+      type: "ptzController",
+      title,
+      kicker: "PTZ Controller",
+      capabilities: ["ptz-control", "network-control", "poe-powered"],
+      width: variant === "pro" ? 520 : 430,
+      variant,
+      selectedCamera: 1,
+      inputs: [
+        { id: "poe", label: "PoE / LAN", signal: "RJ45", top: 50 }
+      ],
+      outputs: []
     };
   }
 
