@@ -1,12 +1,16 @@
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
 const signalColors = {
-  SDI: "#7f8d99",
-  HDMI: "#4cc9f0",
-  "USB-C": "#d8dee9",
-  RJ45: "#9b7bff",
-  "Mic 3.5mm": "#ffcc66",
-  "Headphone 3.5mm": "#ff9f43",
-  XLR: "#ffcc66",
-  Network: "#9b7bff"
+  SDI: cssVar("--signal-sdi"),
+  HDMI: cssVar("--signal-hdmi"),
+  "USB-C": cssVar("--signal-usb-c"),
+  RJ45: cssVar("--signal-rj45"),
+  "Mic 3.5mm": cssVar("--signal-audio"),
+  "Headphone 3.5mm": cssVar("--signal-headphones"),
+  XLR: cssVar("--signal-audio"),
+  Network: cssVar("--signal-network")
 };
 
 const sourceLooks = [
@@ -46,7 +50,16 @@ const GAIN_HOLD_INTERVAL_MS = 70;
 const CABLE_SNAP_DISTANCE_PX = 34;
 const UNDO_HISTORY_LIMIT = 80;
 const MEDIA_POOL_SLOT_COUNT = 20;
-const audioNoteColors = ["#d65aff", "#ff4f6a", "#55e6a5", "#ffd166", "#60d8ff", "#f78c3f"];
+const audioNoteColors = [
+  cssVar("--audio-note-1"),
+  cssVar("--audio-note-2"),
+  cssVar("--audio-note-3"),
+  cssVar("--audio-note-4"),
+  cssVar("--audio-note-5"),
+  cssVar("--audio-note-6")
+];
+const sourceFallbackColor = cssVar("--source-fallback");
+const multiviewEmptyColor = cssVar("--multiview-empty");
 
 const state = {
   nextId: 1,
@@ -465,7 +478,7 @@ function renderSourcePreview(node) {
 
 function renderSourceColorPicture(node) {
   return `
-    <div class="test-picture source-color-picture" style="background: ${node.pattern ?? "#20262d"}">
+    <div class="test-picture source-color-picture" style="background: ${node.pattern ?? sourceFallbackColor}">
       <span>${node.title}</span>
     </div>
   `;
@@ -2313,7 +2326,7 @@ function renderSignalPicture(source) {
   }
 
   return `
-    <div class="test-picture" style="background: ${source.pattern ?? "#20262d"}">
+    <div class="test-picture" style="background: ${source.pattern ?? sourceFallbackColor}">
       <span>${source.title}</span>
     </div>
   `;
@@ -2410,7 +2423,7 @@ function renderMultiviewPicture(switcher) {
   return `
     <div class="multiview-picture">
       ${cells.map((cell) => `
-        <div class="multiview-cell ${cell.className}" style="background: ${cell.source ? cell.source.pattern : "#101418"}">
+        <div class="multiview-cell ${cell.className}" style="background: ${cell.source ? cell.source.pattern : multiviewEmptyColor}">
           <strong>${cell.label}</strong>
           <span>${cell.source ? cell.source.shortName : "No Signal"}</span>
         </div>
@@ -3211,26 +3224,6 @@ function revokeNodeMediaUrl(node) {
   }
 }
 
-function connectSockets(firstSocket, secondSocket) {
-  const connected = BroadcastConnections.createConnection({
-    connections: state.connections,
-    firstSocket,
-    isValidConnection,
-    recordUndoSnapshot,
-    secondSocket
-  });
-
-  if (!connected) {
-    state.selectedSocket = null;
-    render();
-    return;
-  }
-
-  state.selectedSocket = null;
-  state.selectedConnectionIndex = null;
-  render();
-}
-
 function getSelectedNodeIds() {
   const selectedIds = state.selectedNodeIds?.length
     ? state.selectedNodeIds
@@ -3271,29 +3264,6 @@ function clearSelection() {
   state.selectedNodeIds = [];
   state.selectedConnectionIndex = null;
   state.selectedSocket = null;
-}
-
-function selectConnection(connectionIndex) {
-  if (!Number.isInteger(connectionIndex) || !state.connections[connectionIndex]) {
-    return;
-  }
-
-  state.selectedNodeId = null;
-  state.selectedNodeIds = [];
-  state.selectedSocket = null;
-  state.selectedConnectionIndex = connectionIndex;
-  render();
-}
-
-function removeConnection(connectionIndex) {
-  if (!Number.isInteger(connectionIndex) || !state.connections[connectionIndex]) {
-    return;
-  }
-
-  recordUndoSnapshot();
-  state.connections.splice(connectionIndex, 1);
-  state.selectedConnectionIndex = null;
-  render();
 }
 
 function selectAllNodes() {
@@ -4137,7 +4107,14 @@ deviceLayer.addEventListener("click", (event) => {
     const socket = BroadcastConnections.getSocketData(actionTarget);
 
     if (state.selectedSocket) {
-      connectSockets(state.selectedSocket, socket);
+      BroadcastConnections.connectSockets({
+        firstSocket: state.selectedSocket,
+        isValidConnection,
+        recordUndoSnapshot,
+        render,
+        secondSocket: socket,
+        state
+      });
     } else {
       state.selectedSocket = socket;
       render();
@@ -4273,7 +4250,12 @@ cableLayer.addEventListener("dblclick", (event) => {
     return;
   }
 
-  removeConnection(connectionIndex);
+  BroadcastConnections.removeConnection({
+    connectionIndex,
+    recordUndoSnapshot,
+    render,
+    state
+  });
 });
 
 cableLayer.addEventListener("click", (event) => {
@@ -4287,7 +4269,11 @@ cableLayer.addEventListener("click", (event) => {
     return;
   }
 
-  selectConnection(Number(cableTarget.dataset.connectionIndex));
+  BroadcastConnections.selectConnection({
+    connectionIndex: Number(cableTarget.dataset.connectionIndex),
+    render,
+    state
+  });
 });
 
 cableLayer.addEventListener("pointerdown", (event) => {
@@ -4525,7 +4511,17 @@ deviceLayer.addEventListener("pointerdown", (event) => {
   const socketButton = event.target.closest("[data-action='socket']");
 
   if (socketButton) {
-    startCableDrag(event, socketButton);
+    BroadcastConnections.startCableDrag({
+      event,
+      renderLines,
+      setActiveDrag: (drag) => {
+        activeDrag = drag;
+      },
+      socketButton,
+      state,
+      workspace,
+      zoom: state.zoom
+    });
     return;
   }
 
@@ -4606,11 +4602,17 @@ deviceLayer.addEventListener("pointermove", (event) => {
   }
 
   if (activeDrag.type === "cable") {
-    const snapTarget = getCableSnapTarget(event, activeDrag.from);
-
-    activeDrag.snapTarget = snapTarget?.socket ?? null;
-    activeDrag.current = snapTarget?.anchor ?? getWorkspacePoint(event);
-    renderLines();
+    BroadcastConnections.updateCableDrag({
+      activeDrag,
+      deviceLayer,
+      event,
+      getWorkspacePoint,
+      isValidConnection,
+      renderLines,
+      snapDistance: CABLE_SNAP_DISTANCE_PX,
+      workspace,
+      zoom: state.zoom
+    });
     return;
   }
 
@@ -4883,7 +4885,27 @@ function endDrag(event) {
   }
 
   if (activeDrag.type === "cable") {
-    endCableDrag(event);
+    BroadcastConnections.endCableDrag({
+      activeDrag,
+      connectSockets: (firstSocket, secondSocket) => {
+        BroadcastConnections.connectSockets({
+          firstSocket,
+          isValidConnection,
+          recordUndoSnapshot,
+          render,
+          secondSocket,
+          state
+        });
+      },
+      event,
+      render,
+      setActiveDrag: (drag) => {
+        activeDrag = drag;
+      },
+      setSuppressNextSocketClick: (value) => {
+        suppressNextSocketClick = value;
+      }
+    });
     return;
   }
 
@@ -4892,55 +4914,6 @@ function endDrag(event) {
   activeDrag.node.releasePointerCapture(event.pointerId);
   activeDrag = null;
   render();
-}
-
-function startCableDrag(event, socketButton) {
-  const workspaceRect = workspace.getBoundingClientRect();
-  const start = BroadcastConnections.getSocketAnchor(socketButton, workspaceRect, state.zoom);
-
-  socketButton.setPointerCapture(event.pointerId);
-  state.selectedSocket = null;
-  state.selectedConnectionIndex = null;
-  activeDrag = {
-    type: "cable",
-    pointerId: event.pointerId,
-    socketButton,
-    from: BroadcastConnections.getSocketData(socketButton),
-    start,
-    current: start
-  };
-  renderLines();
-}
-
-function endCableDrag(event) {
-  const cableDrag = activeDrag;
-  const dropTarget = cableDrag.snapTarget
-    ?? document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-action='socket']");
-
-  activeDrag = null;
-  suppressNextSocketClick = true;
-
-  if (dropTarget?.dataset.direction && dropTarget.dataset.direction !== cableDrag.from.direction) {
-    connectSockets(cableDrag.from, BroadcastConnections.getSocketData(dropTarget));
-  } else {
-    render();
-  }
-
-  if (cableDrag.socketButton.hasPointerCapture(event.pointerId)) {
-    cableDrag.socketButton.releasePointerCapture(event.pointerId);
-  }
-}
-
-function getCableSnapTarget(event, fromSocket) {
-  return BroadcastConnections.getSnapTarget({
-    deviceLayer,
-    event,
-    fromSocket,
-    isValidConnection,
-    snapDistance: CABLE_SNAP_DISTANCE_PX,
-    workspace,
-    zoom: state.zoom
-  });
 }
 
 function getWorkspacePoint(event) {
@@ -5019,7 +4992,12 @@ document.addEventListener("keydown", (event) => {
       removeNodes(selectedNodeIds);
       event.preventDefault();
     } else if (!state.readOnly && state.selectedConnectionIndex !== null) {
-      removeConnection(state.selectedConnectionIndex);
+      BroadcastConnections.removeConnection({
+        connectionIndex: state.selectedConnectionIndex,
+        recordUndoSnapshot,
+        render,
+        state
+      });
       event.preventDefault();
     }
     return;
@@ -5070,7 +5048,12 @@ document.addEventListener("keydown", (event) => {
     if (selectedNodeIds.length) {
       removeNodes(selectedNodeIds);
     } else if (state.selectedConnectionIndex !== null) {
-      removeConnection(state.selectedConnectionIndex);
+      BroadcastConnections.removeConnection({
+        connectionIndex: state.selectedConnectionIndex,
+        recordUndoSnapshot,
+        render,
+        state
+      });
     }
     event.preventDefault();
   }

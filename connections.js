@@ -259,11 +259,131 @@ window.BroadcastConnections = (() => {
     return true;
   }
 
+  function connectSockets({ firstSocket, isValidConnection, recordUndoSnapshot, render, secondSocket, state }) {
+    const connected = createConnection({
+      connections: state.connections,
+      firstSocket,
+      isValidConnection,
+      recordUndoSnapshot,
+      secondSocket
+    });
+
+    state.selectedSocket = null;
+
+    if (connected) {
+      state.selectedConnectionIndex = null;
+    }
+
+    render();
+    return connected;
+  }
+
+  function selectConnection({ connectionIndex, render, state }) {
+    if (!Number.isInteger(connectionIndex) || !state.connections[connectionIndex]) {
+      return false;
+    }
+
+    state.selectedNodeId = null;
+    state.selectedNodeIds = [];
+    state.selectedSocket = null;
+    state.selectedConnectionIndex = connectionIndex;
+    render();
+    return true;
+  }
+
+  function removeConnection({ connectionIndex, recordUndoSnapshot, render, state }) {
+    if (!Number.isInteger(connectionIndex) || !state.connections[connectionIndex]) {
+      return false;
+    }
+
+    recordUndoSnapshot();
+    state.connections.splice(connectionIndex, 1);
+    state.selectedConnectionIndex = null;
+    render();
+    return true;
+  }
+
+  function startCableDrag({ event, renderLines, setActiveDrag, socketButton, state, workspace, zoom }) {
+    const workspaceRect = workspace.getBoundingClientRect();
+    const start = getSocketAnchor(socketButton, workspaceRect, zoom);
+
+    socketButton.setPointerCapture(event.pointerId);
+    state.selectedSocket = null;
+    state.selectedConnectionIndex = null;
+    setActiveDrag({
+      type: "cable",
+      pointerId: event.pointerId,
+      socketButton,
+      from: getSocketData(socketButton),
+      start,
+      current: start
+    });
+    renderLines();
+  }
+
+  function updateCableDrag({
+    activeDrag,
+    deviceLayer,
+    event,
+    getWorkspacePoint,
+    isValidConnection,
+    renderLines,
+    snapDistance,
+    workspace,
+    zoom
+  }) {
+    const snapTarget = getSnapTarget({
+      deviceLayer,
+      event,
+      fromSocket: activeDrag.from,
+      isValidConnection,
+      snapDistance,
+      workspace,
+      zoom
+    });
+
+    activeDrag.snapTarget = snapTarget?.socket ?? null;
+    activeDrag.current = snapTarget?.anchor ?? getWorkspacePoint(event);
+    renderLines();
+  }
+
+  function endCableDrag({
+    activeDrag,
+    connectSockets,
+    event,
+    render,
+    setActiveDrag,
+    setSuppressNextSocketClick
+  }) {
+    const cableDrag = activeDrag;
+    const dropTarget = cableDrag.snapTarget
+      ?? document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-action='socket']");
+
+    setActiveDrag(null);
+    setSuppressNextSocketClick(true);
+
+    if (dropTarget?.dataset.direction && dropTarget.dataset.direction !== cableDrag.from.direction) {
+      connectSockets(cableDrag.from, getSocketData(dropTarget));
+    } else {
+      render();
+    }
+
+    if (cableDrag.socketButton.hasPointerCapture(event.pointerId)) {
+      cableDrag.socketButton.releasePointerCapture(event.pointerId);
+    }
+  }
+
   return {
+    connectSockets,
     createConnection,
+    endCableDrag,
     getSnapTarget,
     getSocketAnchor,
     getSocketData,
-    renderConnections
+    removeConnection,
+    renderConnections,
+    selectConnection,
+    startCableDrag,
+    updateCableDrag
   };
 })();
