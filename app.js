@@ -2026,8 +2026,10 @@ function renderMonitorPicture(monitor) {
     return renderTransitionPicture(transition.fromSource, transition.toSource, transition.durationMs);
   }
 
-  const feed = getMonitorFeed(monitor);
+  return renderFeedPicture(getMonitorFeed(monitor));
+}
 
+function renderFeedPicture(feed) {
   if (feed.type === "multiview") {
     return renderMultiviewPicture(feed.switcher);
   }
@@ -2036,12 +2038,12 @@ function renderMonitorPicture(monitor) {
     return renderTransitionPicture(feed.transition.fromSource, feed.transition.toSource, feed.transition.durationMs);
   }
 
-  if (!feed.source) {
-    return renderNoSignalPicture();
+  if (feed.pipSwitcher) {
+    return renderPipPicture(feed.pipSwitcher, feed.programFeed ?? { ...feed, pipSwitcher: null });
   }
 
-  if (feed.pipSwitcher) {
-    return renderPipPicture(feed.pipSwitcher, feed.source);
+  if (!feed.source) {
+    return renderNoSignalPicture();
   }
 
   return renderSignalPicture(feed.source);
@@ -2144,21 +2146,21 @@ function renderSignalPicture(source) {
   `;
 }
 
-function renderPipPicture(switcher, programSource) {
+function renderPipPicture(switcher, programFeed) {
   if (!switcher.pipEnabled) {
-    return renderSignalPicture(programSource);
+    return renderFeedPicture(programFeed);
   }
 
   return `
     <div class="pip-picture">
       <div class="pip-program-layer">
-        ${renderSignalPicture(programSource)}
+        ${renderFeedPicture(programFeed)}
       </div>
       ${getSwitcherPipSlots(switcher).map((slot) => {
-        const source = getSwitcherInputSource(switcher, slot.input);
+        const feed = getSwitcherInputFeed(switcher, slot.input);
         return `
           <div class="pip-slot pip-slot-${slot.position}">
-            ${source ? renderSignalPicture(source) : renderNoSignalPicture()}
+            ${renderFeedPicture(feed)}
           </div>
         `;
       }).join("")}
@@ -2317,12 +2319,7 @@ function getFeedFromPort(portRef, visited = new Set()) {
       return { type: "program", connected: true, transition: activeTransition, source: null };
     }
 
-    return {
-      type: "program",
-      connected: true,
-      source: getSwitcherProgramSource(fromNode),
-      pipSwitcher: fromNode
-    };
+    return getSwitcherProgramOutputFeed(fromNode, visited);
   }
 
   if (fromNode.type === "monitor" && ["sdi-out", "hdmi-out"].includes(portRef.portId)) {
@@ -2355,49 +2352,90 @@ function getSwitcherMultiviewFeed(switcher) {
   const mode = getSwitcherMultiviewMode(switcher);
 
   if (mode === "program") {
-    return {
-      type: "program",
-      connected: true,
-      source: getSwitcherProgramSource(switcher),
-      pipSwitcher: switcher
-    };
+    return getSwitcherProgramOutputFeed(switcher);
   }
 
   if (mode === "clean") {
-    return { type: "program", connected: true, source: getSwitcherProgramSource(switcher) };
+    return getSwitcherProgramFeed(switcher);
   }
 
   if (mode === "preview") {
-    return { type: "program", connected: true, source: getSwitcherPreviewSource(switcher) };
+    return getSwitcherPreviewFeed(switcher);
   }
 
   if (mode === "input") {
-    return {
-      type: "program",
-      connected: true,
-      source: getSwitcherInputSource(switcher, switcher.multiviewInput)
-    };
+    return getSwitcherInputFeed(switcher, switcher.multiviewInput);
   }
 
   return { type: "multiview", connected: true, switcher, source: null };
 }
 
 function getSwitcherProgramSource(switcher) {
-  return switcher?.programInput ? getSwitcherInputSource(switcher, switcher.programInput) : null;
+  return getFeedPrimarySource(getSwitcherProgramFeed(switcher));
 }
 
 function getSwitcherPreviewSource(switcher) {
-  return switcher?.previewInput ? getSwitcherInputSource(switcher, switcher.previewInput) : null;
+  return getFeedPrimarySource(getSwitcherPreviewFeed(switcher));
 }
 
-function getSwitcherInputSource(switcher, input) {
+function getSwitcherProgramOutputFeed(switcher, visited = new Set()) {
+  const feed = getSwitcherProgramFeed(switcher, visited);
+
+  return {
+    type: "program",
+    connected: true,
+    source: getFeedPrimarySource(feed),
+    programFeed: feed,
+    pipSwitcher: switcher
+  };
+}
+
+function getSwitcherProgramFeed(switcher, visited = new Set()) {
+  return switcher?.programInput
+    ? getSwitcherInputFeed(switcher, switcher.programInput, visited)
+    : { type: "program", connected: true, source: null };
+}
+
+function getSwitcherPreviewFeed(switcher, visited = new Set()) {
+  return switcher?.previewInput
+    ? getSwitcherInputFeed(switcher, switcher.previewInput, visited)
+    : { type: "program", connected: true, source: null };
+}
+
+function getSwitcherInputFeed(switcher, input, visited = new Set()) {
   const mediaSource = getSwitcherMediaSource(input, switcher);
 
   if (mediaSource) {
-    return mediaSource;
+    return { type: "program", connected: true, source: mediaSource };
   }
 
-  return resolveNodeInputSource(switcher, `input-${input}`);
+  const connection = state.connections.find((item) => (
+    item.to.nodeId === switcher.id && item.to.portId === `input-${input}`
+  ));
+
+  return connection
+    ? getFeedFromPort(connection.from, visited)
+    : { type: "program", connected: true, source: null };
+}
+
+function getFeedPrimarySource(feed) {
+  if (!feed) {
+    return null;
+  }
+
+  if (feed.source) {
+    return feed.source;
+  }
+
+  if (feed.transition) {
+    return feed.transition.toSource ?? feed.transition.fromSource ?? null;
+  }
+
+  return null;
+}
+
+function getSwitcherInputSource(switcher, input) {
+  return getFeedPrimarySource(getSwitcherInputFeed(switcher, input));
 }
 
 function getSwitcherMediaSource(source, switcher = null) {
