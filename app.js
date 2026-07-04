@@ -122,6 +122,7 @@ let activeGainDrag = null;
 let activeChannelFaderDrag = null;
 let connectionController = null;
 let atemController = null;
+let atemAudioController = null;
 
 function addGear(type, customTemplate) {
   const resolvedType = legacyGearAliases[type] ?? type;
@@ -1250,25 +1251,6 @@ function normalizeAudioChannelFaderState(channelFader, fallback = 0) {
   };
 }
 
-function setAudioSourceMode(switcherId, input, mode) {
-  const switcher = getNode(switcherId);
-
-  if (switcher?.type !== "switcher") {
-    return;
-  }
-
-  ensureSwitcherAudioState(switcher);
-  if (mode === "reset") {
-    switcher.audio.faders[input] = 0;
-    switcher.audio.channelFaders[input] = createAudioChannelFaderState();
-    switcher.audio.gains[input] = 0;
-  } else {
-    switcher.audio.sources[input] = mode;
-  }
-  showAudioMeter(switcherId, input);
-  render();
-}
-
 function getSwitcherInputAudioMode(switcher, input) {
   ensureSwitcherAudioState(switcher);
   return switcher.audio.sources[input] ?? "off";
@@ -1307,22 +1289,6 @@ function setSwitcherInputFader(switcher, input, fader) {
   };
 }
 
-function setSwitcherInputChannelFader(switcherId, input, channel, value) {
-  const switcher = getNode(switcherId);
-
-  if (switcher?.type !== "switcher") {
-    return;
-  }
-
-  ensureSwitcherAudioState(switcher);
-  const channelFader = getSwitcherInputChannelFaders(switcher, input);
-  updateChannelFaderState(channelFader, channel, value);
-
-  switcher.audio.faders[input] = Math.round(((channelFader.left + channelFader.right) / 2) * 10) / 10;
-  showAudioMeter(switcherId, input, { autoHide: false });
-  renderAudioMeterPopover();
-}
-
 function updateChannelFaderState(channelFader, channel, value) {
   const nextValue = clamp(Math.round(Number(value) * 10) / 10, -60, 6);
 
@@ -1339,101 +1305,14 @@ function updateChannelFaderState(channelFader, channel, value) {
   }
 }
 
-function toggleSwitcherInputFaderLock(switcherId, input) {
-  const switcher = getNode(switcherId);
-
-  if (switcher?.type !== "switcher") {
-    return;
-  }
-
-  ensureSwitcherAudioState(switcher);
-  const channelFader = getSwitcherInputChannelFaders(switcher, input);
-  channelFader.locked = !channelFader.locked;
-  switcher.audio.faders[input] = Math.round(((channelFader.left + channelFader.right) / 2) * 10) / 10;
-
-  showAudioMeter(switcherId, input, { autoHide: false });
-  renderAudioMeterPopover();
-}
-
-function toggleSwitcherMicFaderLock(switcherId, micId) {
-  const switcher = getNode(switcherId);
-
-  if (switcher?.type !== "switcher") {
-    return;
-  }
-
-  ensureSwitcherAudioState(switcher);
-  const channelFader = getSwitcherMicFaders(switcher, micId);
-  channelFader.locked = !channelFader.locked;
-
-  showAudioMeter(switcherId, micId, { kind: "mic", autoHide: false });
-  renderAudioMeterPopover();
-}
-
-function adjustAudioFader(switcherId, input, direction) {
-  const switcher = getNode(switcherId);
-
-  if (switcher?.type !== "switcher") {
-    return;
-  }
-
-  const delta = direction === "up" ? 0.1 : -0.1;
-  setSwitcherInputFader(switcher, input, getSwitcherInputFader(switcher, input) + delta);
-  showAudioMeter(switcherId, input, { autoHide: true });
-  render();
-}
-
-function adjustMicAudioFader(switcherId, micId, direction) {
-  const switcher = getNode(switcherId);
-
-  if (switcher?.type !== "switcher") {
-    return;
-  }
-
-  const delta = direction === "up" ? 0.1 : -0.1;
-  const channelFader = getSwitcherMicFaders(switcher, micId);
-  const minDelta = -60 - Math.min(channelFader.left, channelFader.right);
-  const maxDelta = 6 - Math.max(channelFader.left, channelFader.right);
-  const safeDelta = clamp(delta, minDelta, maxDelta);
-  channelFader.left = Math.round((channelFader.left + safeDelta) * 10) / 10;
-  channelFader.right = Math.round((channelFader.right + safeDelta) * 10) / 10;
-  showAudioMeter(switcherId, micId, { kind: "mic", autoHide: true });
-  render();
-}
-
-function adjustHeadphoneFader(switcherId, direction) {
-  const switcher = getNode(switcherId);
-
-  if (switcher?.type !== "switcher") {
-    return;
-  }
-
-  const delta = direction === "up" ? 0.1 : -0.1;
-  setSwitcherHeadphoneFader(switcherId, getSwitcherHeadphoneFader(switcher) + delta);
-  showAudioMeter(switcherId, "headphone", { kind: "headphone", autoHide: true });
-  render();
-}
-
-function adjustInputGain(switcherId, input, delta) {
-  const switcher = getNode(switcherId);
-
-  if (switcher?.type !== "switcher") {
-    return;
-  }
-
-  setSwitcherInputGain(switcher, input, getSwitcherInputGain(switcher, input) + delta);
-  showAudioMeter(switcherId, input, { autoHide: false });
-  renderAudioMeterPopover();
-}
-
 function startFaderHold(button) {
   stopFaderHold();
 
   gainHoldTimer = window.setTimeout(() => {
     suppressNextGainClick = true;
-    adjustAudioFader(button.dataset.nodeId, Number(button.dataset.input), button.dataset.direction);
+    atemAudioController.adjustInputFader(button.dataset.nodeId, Number(button.dataset.input), button.dataset.direction);
     gainHoldInterval = window.setInterval(() => {
-      adjustAudioFader(button.dataset.nodeId, Number(button.dataset.input), button.dataset.direction);
+      atemAudioController.adjustInputFader(button.dataset.nodeId, Number(button.dataset.input), button.dataset.direction);
     }, GAIN_HOLD_INTERVAL_MS);
   }, GAIN_HOLD_DELAY_MS);
 }
@@ -1443,9 +1322,9 @@ function startMicFaderHold(button) {
 
   gainHoldTimer = window.setTimeout(() => {
     suppressNextGainClick = true;
-    adjustMicAudioFader(button.dataset.nodeId, button.dataset.mic, button.dataset.direction);
+    atemAudioController.adjustMicFader(button.dataset.nodeId, button.dataset.mic, button.dataset.direction);
     gainHoldInterval = window.setInterval(() => {
-      adjustMicAudioFader(button.dataset.nodeId, button.dataset.mic, button.dataset.direction);
+      atemAudioController.adjustMicFader(button.dataset.nodeId, button.dataset.mic, button.dataset.direction);
     }, GAIN_HOLD_INTERVAL_MS);
   }, GAIN_HOLD_DELAY_MS);
 }
@@ -1455,9 +1334,9 @@ function startHeadphoneFaderHold(button) {
 
   gainHoldTimer = window.setTimeout(() => {
     suppressNextGainClick = true;
-    adjustHeadphoneFader(button.dataset.nodeId, button.dataset.direction);
+    atemAudioController.adjustHeadphoneFader(button.dataset.nodeId, button.dataset.direction);
     gainHoldInterval = window.setInterval(() => {
-      adjustHeadphoneFader(button.dataset.nodeId, button.dataset.direction);
+      atemAudioController.adjustHeadphoneFader(button.dataset.nodeId, button.dataset.direction);
     }, GAIN_HOLD_INTERVAL_MS);
   }, GAIN_HOLD_DELAY_MS);
 }
@@ -2073,37 +1952,6 @@ function beginAudioFadeToBlack(switcher, durationMs) {
   scheduleAudioFadeCleanup(durationMs);
 }
 
-function setMicAudioMode(switcherId, micId, mode) {
-  const switcher = getNode(switcherId);
-
-  if (switcher?.type !== "switcher") {
-    return;
-  }
-
-  ensureSwitcherAudioState(switcher);
-  switcher.audio.mics[micId] = mode;
-  showAudioMeter(switcherId, micId, { kind: "mic" });
-  render();
-}
-
-function setHeadphoneAudioMode(switcherId, mode) {
-  const switcher = getNode(switcherId);
-
-  if (switcher?.type !== "switcher") {
-    return;
-  }
-
-  ensureSwitcherAudioState(switcher);
-  if (mode === "reset") {
-    switcher.audio.headphone.fader = 0;
-    switcher.audio.headphone.muted = false;
-  } else if (mode === "mute") {
-    switcher.audio.headphone.muted = !switcher.audio.headphone.muted;
-  }
-  showAudioMeter(switcherId, "headphone", { kind: "headphone" });
-  render();
-}
-
 function getSwitcherMicGain(switcher, micId) {
   ensureSwitcherAudioState(switcher);
   return Number(switcher.audio.micGains[micId] ?? 0);
@@ -2124,48 +1972,9 @@ function getMicLabel(micId) {
   return micId === "mic2" ? "MIC 2" : "MIC 1";
 }
 
-function setSwitcherMicChannelFader(switcherId, micId, channel, value) {
-  const switcher = getNode(switcherId);
-
-  if (switcher?.type !== "switcher") {
-    return;
-  }
-
-  ensureSwitcherAudioState(switcher);
-  updateChannelFaderState(getSwitcherMicFaders(switcher, micId), channel, value);
-  showAudioMeter(switcherId, micId, { kind: "mic", autoHide: false });
-  renderAudioMeterPopover();
-}
-
 function getSwitcherHeadphoneFader(switcher) {
   ensureSwitcherAudioState(switcher);
   return Number(switcher.audio.headphone.fader ?? 0);
-}
-
-function setSwitcherHeadphoneFader(switcherId, value) {
-  const switcher = getNode(switcherId);
-
-  if (switcher?.type !== "switcher") {
-    return;
-  }
-
-  ensureSwitcherAudioState(switcher);
-  switcher.audio.headphone.fader = clamp(Math.round(Number(value) * 10) / 10, -60, 6);
-  showAudioMeter(switcherId, "headphone", { kind: "headphone", autoHide: false });
-  renderAudioMeterPopover();
-}
-
-function setSwitcherAudioGain(switcher, kind, input, gain) {
-  if (kind === "mic") {
-    setSwitcherMicGain(switcher, input, gain);
-    return;
-  }
-
-  setSwitcherInputGain(switcher, Number(input), gain);
-}
-
-function getSwitcherAudioGain(switcher, kind, input) {
-  return kind === "mic" ? getSwitcherMicGain(switcher, input) : getSwitcherInputGain(switcher, Number(input));
 }
 
 function renderSourceButton(switcher, input) {
@@ -2953,6 +2762,28 @@ atemController = new BroadcastAtem.AtemController({
     render
   },
   state
+});
+
+atemAudioController = new BroadcastAtemAudio.AtemAudioController({
+  callbacks: {
+    clamp,
+    createAudioChannelFaderState,
+    ensureSwitcherAudioState,
+    getNode,
+    getSwitcherHeadphoneFader,
+    getSwitcherInputChannelFaders,
+    getSwitcherInputFader,
+    getSwitcherInputGain,
+    getSwitcherMicFaders,
+    getSwitcherMicGain,
+    render,
+    renderAudioMeterPopover,
+    setSwitcherInputFader,
+    setSwitcherInputGain,
+    setSwitcherMicGain,
+    showAudioMeter,
+    updateChannelFaderState
+  }
 });
 
 function cycleSourceView(nodeId) {
@@ -3966,7 +3797,7 @@ deviceLayer.addEventListener("click", (event) => {
   }
 
   if (action === "set-audio-source") {
-    setAudioSourceMode(actionTarget.dataset.nodeId, Number(actionTarget.dataset.input), actionTarget.dataset.mode);
+    atemAudioController.setSourceMode(actionTarget.dataset.nodeId, Number(actionTarget.dataset.input), actionTarget.dataset.mode);
   }
 
   if (action === "adjust-audio-fader") {
@@ -3974,11 +3805,11 @@ deviceLayer.addEventListener("click", (event) => {
       suppressNextGainClick = false;
       return;
     }
-    adjustAudioFader(actionTarget.dataset.nodeId, Number(actionTarget.dataset.input), actionTarget.dataset.direction);
+    atemAudioController.adjustInputFader(actionTarget.dataset.nodeId, Number(actionTarget.dataset.input), actionTarget.dataset.direction);
   }
 
   if (action === "set-mic-audio") {
-    setMicAudioMode(actionTarget.dataset.nodeId, actionTarget.dataset.mic, actionTarget.dataset.mode);
+    atemAudioController.setMicMode(actionTarget.dataset.nodeId, actionTarget.dataset.mic, actionTarget.dataset.mode);
   }
 
   if (action === "adjust-mic-fader") {
@@ -3986,11 +3817,11 @@ deviceLayer.addEventListener("click", (event) => {
       suppressNextGainClick = false;
       return;
     }
-    adjustMicAudioFader(actionTarget.dataset.nodeId, actionTarget.dataset.mic, actionTarget.dataset.direction);
+    atemAudioController.adjustMicFader(actionTarget.dataset.nodeId, actionTarget.dataset.mic, actionTarget.dataset.direction);
   }
 
   if (action === "set-headphone-audio") {
-    setHeadphoneAudioMode(actionTarget.dataset.nodeId, actionTarget.dataset.mode);
+    atemAudioController.setHeadphoneMode(actionTarget.dataset.nodeId, actionTarget.dataset.mode);
   }
 
   if (action === "adjust-headphone-fader") {
@@ -3998,7 +3829,7 @@ deviceLayer.addEventListener("click", (event) => {
       suppressNextGainClick = false;
       return;
     }
-    adjustHeadphoneFader(actionTarget.dataset.nodeId, actionTarget.dataset.direction);
+    atemAudioController.adjustHeadphoneFader(actionTarget.dataset.nodeId, actionTarget.dataset.direction);
   }
 
   if (action === "set-transition-duration") {
@@ -4192,9 +4023,9 @@ audioMeterPopover?.addEventListener("click", (event) => {
 
   if (lockButton) {
     if (lockButton.dataset.audioKind === "mic") {
-      toggleSwitcherMicFaderLock(lockButton.dataset.nodeId, lockButton.dataset.audioInput);
+      atemAudioController.toggleMicFaderLock(lockButton.dataset.nodeId, lockButton.dataset.audioInput);
     } else {
-      toggleSwitcherInputFaderLock(lockButton.dataset.nodeId, Number(lockButton.dataset.input));
+      atemAudioController.toggleInputFaderLock(lockButton.dataset.nodeId, Number(lockButton.dataset.input));
     }
   }
 });
@@ -4500,7 +4331,7 @@ function updateChannelFaderDrag(event) {
   const value = -60 + ratio * 66;
 
   if (activeChannelFaderDrag.kind === "mic") {
-    setSwitcherMicChannelFader(
+    atemAudioController.setMicChannelFader(
       activeChannelFaderDrag.switcherId,
       activeChannelFaderDrag.input,
       activeChannelFaderDrag.channel,
@@ -4510,11 +4341,11 @@ function updateChannelFaderDrag(event) {
   }
 
   if (activeChannelFaderDrag.kind === "headphone") {
-    setSwitcherHeadphoneFader(activeChannelFaderDrag.switcherId, value);
+    atemAudioController.setHeadphoneFader(activeChannelFaderDrag.switcherId, value);
     return;
   }
 
-  setSwitcherInputChannelFader(activeChannelFaderDrag.switcherId, activeChannelFaderDrag.input, activeChannelFaderDrag.channel, value);
+  atemAudioController.setInputChannelFader(activeChannelFaderDrag.switcherId, activeChannelFaderDrag.input, activeChannelFaderDrag.channel, value);
 }
 
 function endChannelFaderDrag(event) {
@@ -4546,7 +4377,7 @@ function startInputGainDrag(event, control) {
     kind,
     input,
     startX: event.clientX,
-    startGain: getSwitcherAudioGain(switcher, kind, input)
+    startGain: atemAudioController.getAudioGain(switcher, kind, input)
   };
   control.setPointerCapture(event.pointerId);
   showAudioMeter(switcher.id, input, { kind, autoHide: false });
@@ -4561,7 +4392,7 @@ function updateInputGainDrag(event) {
   }
 
   const delta = Math.round((event.clientX - activeGainDrag.startX) / 4) * 0.1;
-  setSwitcherAudioGain(switcher, activeGainDrag.kind, activeGainDrag.input, activeGainDrag.startGain + delta);
+  atemAudioController.setAudioGain(switcher, activeGainDrag.kind, activeGainDrag.input, activeGainDrag.startGain + delta);
   showAudioMeter(switcher.id, activeGainDrag.input, { kind: activeGainDrag.kind, autoHide: false });
   renderAudioMeterPopover();
 }
