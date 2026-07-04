@@ -2228,10 +2228,12 @@ function getSwitcherPreviewSource(switcher) {
 
 function getSwitcherProgramOutputFeed(switcher, visited = new Set()) {
   const feed = getSwitcherProgramFeed(switcher, visited);
+  const propagatedTransition = getPropagatedSwitcherOutputTransition(switcher, feed);
 
   return {
     type: "program",
     connected: true,
+    transition: propagatedTransition,
     source: getFeedPrimarySource(feed),
     programFeed: feed,
     pipSwitcher: switcher
@@ -2240,13 +2242,32 @@ function getSwitcherProgramOutputFeed(switcher, visited = new Set()) {
 
 function getSwitcherProgramOutputFeedForInput(switcher, input, visited = new Set()) {
   const feed = getSwitcherInputFeed(switcher, input, visited);
+  const propagatedTransition = getPropagatedSwitcherOutputTransition(switcher, feed);
 
   return {
     type: "program",
     connected: true,
+    transition: propagatedTransition,
     source: getFeedPrimarySource(feed),
     programFeed: feed,
     pipSwitcher: switcher
+  };
+}
+
+function getPropagatedSwitcherOutputTransition(switcher, feed) {
+  if (!feed?.transition) {
+    return null;
+  }
+
+  return {
+    ...feed.transition,
+    fromSource: feed.transition.fromSource?.type
+      ? feed.transition.fromSource
+      : (feed.transition.fromSource ?? null),
+    toSource: feed.transition.toSource?.type
+      ? feed.transition.toSource
+      : (feed.transition.toSource ?? null),
+    throughSwitcherId: switcher.id
   };
 }
 
