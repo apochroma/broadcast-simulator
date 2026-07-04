@@ -373,7 +373,112 @@ window.BroadcastConnections = (() => {
     }
   }
 
+  class ConnectionController {
+    constructor({ callbacks, config, elements, state }) {
+      this.callbacks = callbacks;
+      this.config = config;
+      this.elements = elements;
+      this.state = state;
+    }
+
+    get activeDrag() {
+      return this.callbacks.getActiveDrag();
+    }
+
+    get zoom() {
+      return this.callbacks.getZoom();
+    }
+
+    render() {
+      renderConnections({
+        activeDrag: this.activeDrag,
+        cableLayer: this.elements.cableLayer,
+        connections: this.state.connections,
+        deviceLayer: this.elements.deviceLayer,
+        getAudioMarkers: this.callbacks.getAudioMarkers,
+        getClassName: this.callbacks.getClassName,
+        getLabel: this.callbacks.getLabel,
+        signalColors: this.config.signalColors,
+        selectedConnectionIndex: this.state.selectedConnectionIndex,
+        workspace: this.elements.workspace,
+        worldHeight: this.config.worldHeight,
+        worldWidth: this.config.worldWidth,
+        zoom: this.zoom
+      });
+    }
+
+    getSocketData(socketButton) {
+      return getSocketData(socketButton);
+    }
+
+    connectSockets(firstSocket, secondSocket) {
+      return connectSockets({
+        firstSocket,
+        isValidConnection: this.callbacks.isValidConnection,
+        recordUndoSnapshot: this.callbacks.recordUndoSnapshot,
+        render: this.callbacks.render,
+        secondSocket,
+        state: this.state
+      });
+    }
+
+    selectConnection(connectionIndex) {
+      return selectConnection({
+        connectionIndex,
+        render: this.callbacks.render,
+        state: this.state
+      });
+    }
+
+    removeConnection(connectionIndex) {
+      return removeConnection({
+        connectionIndex,
+        recordUndoSnapshot: this.callbacks.recordUndoSnapshot,
+        render: this.callbacks.render,
+        state: this.state
+      });
+    }
+
+    startCableDrag(event, socketButton) {
+      startCableDrag({
+        event,
+        renderLines: this.callbacks.renderLines,
+        setActiveDrag: this.callbacks.setActiveDrag,
+        socketButton,
+        state: this.state,
+        workspace: this.elements.workspace,
+        zoom: this.zoom
+      });
+    }
+
+    updateCableDrag(event) {
+      updateCableDrag({
+        activeDrag: this.activeDrag,
+        deviceLayer: this.elements.deviceLayer,
+        event,
+        getWorkspacePoint: this.callbacks.getWorkspacePoint,
+        isValidConnection: this.callbacks.isValidConnection,
+        renderLines: this.callbacks.renderLines,
+        snapDistance: this.config.snapDistance,
+        workspace: this.elements.workspace,
+        zoom: this.zoom
+      });
+    }
+
+    endCableDrag(event) {
+      endCableDrag({
+        activeDrag: this.activeDrag,
+        connectSockets: (firstSocket, secondSocket) => this.connectSockets(firstSocket, secondSocket),
+        event,
+        render: this.callbacks.render,
+        setActiveDrag: this.callbacks.setActiveDrag,
+        setSuppressNextSocketClick: this.callbacks.setSuppressNextSocketClick
+      });
+    }
+  }
+
   return {
+    ConnectionController,
     connectSockets,
     createConnection,
     endCableDrag,

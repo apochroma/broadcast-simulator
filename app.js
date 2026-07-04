@@ -120,6 +120,7 @@ let gainHoldInterval = null;
 let suppressNextGainClick = false;
 let activeGainDrag = null;
 let activeChannelFaderDrag = null;
+let connectionController = null;
 
 function addGear(type, customTemplate) {
   const resolvedType = legacyGearAliases[type] ?? type;
@@ -2830,21 +2831,7 @@ function resolveSourceFromPort(portRef, visited = new Set()) {
 
 function renderLines() {
   purgeExpiredAudioFades();
-  BroadcastConnections.renderConnections({
-    activeDrag,
-    cableLayer,
-    connections: state.connections,
-    deviceLayer,
-    getAudioMarkers: getConnectionAudioMarkers,
-    getClassName: getConnectionClass,
-    getLabel: getConnectionLabel,
-    signalColors,
-    selectedConnectionIndex: state.selectedConnectionIndex,
-    workspace,
-    worldHeight: WORLD_HEIGHT,
-    worldWidth: WORLD_WIDTH,
-    zoom: state.zoom
-  });
+  connectionController.render();
 }
 
 function getConnectionAudioMarkers(connection) {
@@ -2915,6 +2902,39 @@ function getConnectionLabel(connection) {
 
   return connection.signal;
 }
+
+connectionController = new BroadcastConnections.ConnectionController({
+  callbacks: {
+    getActiveDrag: () => activeDrag,
+    getAudioMarkers: getConnectionAudioMarkers,
+    getClassName: getConnectionClass,
+    getLabel: getConnectionLabel,
+    getWorkspacePoint,
+    getZoom: () => state.zoom,
+    isValidConnection,
+    recordUndoSnapshot,
+    render,
+    renderLines,
+    setActiveDrag: (drag) => {
+      activeDrag = drag;
+    },
+    setSuppressNextSocketClick: (value) => {
+      suppressNextSocketClick = value;
+    }
+  },
+  config: {
+    signalColors,
+    snapDistance: CABLE_SNAP_DISTANCE_PX,
+    worldHeight: WORLD_HEIGHT,
+    worldWidth: WORLD_WIDTH
+  },
+  elements: {
+    cableLayer,
+    deviceLayer,
+    workspace
+  },
+  state
+});
 
 function cycleSourceView(nodeId) {
   const node = getNode(nodeId);
@@ -4104,17 +4124,10 @@ deviceLayer.addEventListener("click", (event) => {
       return;
     }
 
-    const socket = BroadcastConnections.getSocketData(actionTarget);
+    const socket = connectionController.getSocketData(actionTarget);
 
     if (state.selectedSocket) {
-      BroadcastConnections.connectSockets({
-        firstSocket: state.selectedSocket,
-        isValidConnection,
-        recordUndoSnapshot,
-        render,
-        secondSocket: socket,
-        state
-      });
+      connectionController.connectSockets(state.selectedSocket, socket);
     } else {
       state.selectedSocket = socket;
       render();
@@ -4250,12 +4263,7 @@ cableLayer.addEventListener("dblclick", (event) => {
     return;
   }
 
-  BroadcastConnections.removeConnection({
-    connectionIndex,
-    recordUndoSnapshot,
-    render,
-    state
-  });
+  connectionController.removeConnection(connectionIndex);
 });
 
 cableLayer.addEventListener("click", (event) => {
@@ -4269,11 +4277,7 @@ cableLayer.addEventListener("click", (event) => {
     return;
   }
 
-  BroadcastConnections.selectConnection({
-    connectionIndex: Number(cableTarget.dataset.connectionIndex),
-    render,
-    state
-  });
+  connectionController.selectConnection(Number(cableTarget.dataset.connectionIndex));
 });
 
 cableLayer.addEventListener("pointerdown", (event) => {
@@ -4511,17 +4515,7 @@ deviceLayer.addEventListener("pointerdown", (event) => {
   const socketButton = event.target.closest("[data-action='socket']");
 
   if (socketButton) {
-    BroadcastConnections.startCableDrag({
-      event,
-      renderLines,
-      setActiveDrag: (drag) => {
-        activeDrag = drag;
-      },
-      socketButton,
-      state,
-      workspace,
-      zoom: state.zoom
-    });
+    connectionController.startCableDrag(event, socketButton);
     return;
   }
 
@@ -4602,17 +4596,7 @@ deviceLayer.addEventListener("pointermove", (event) => {
   }
 
   if (activeDrag.type === "cable") {
-    BroadcastConnections.updateCableDrag({
-      activeDrag,
-      deviceLayer,
-      event,
-      getWorkspacePoint,
-      isValidConnection,
-      renderLines,
-      snapDistance: CABLE_SNAP_DISTANCE_PX,
-      workspace,
-      zoom: state.zoom
-    });
+    connectionController.updateCableDrag(event);
     return;
   }
 
@@ -4885,27 +4869,7 @@ function endDrag(event) {
   }
 
   if (activeDrag.type === "cable") {
-    BroadcastConnections.endCableDrag({
-      activeDrag,
-      connectSockets: (firstSocket, secondSocket) => {
-        BroadcastConnections.connectSockets({
-          firstSocket,
-          isValidConnection,
-          recordUndoSnapshot,
-          render,
-          secondSocket,
-          state
-        });
-      },
-      event,
-      render,
-      setActiveDrag: (drag) => {
-        activeDrag = drag;
-      },
-      setSuppressNextSocketClick: (value) => {
-        suppressNextSocketClick = value;
-      }
-    });
+    connectionController.endCableDrag(event);
     return;
   }
 
@@ -4992,12 +4956,7 @@ document.addEventListener("keydown", (event) => {
       removeNodes(selectedNodeIds);
       event.preventDefault();
     } else if (!state.readOnly && state.selectedConnectionIndex !== null) {
-      BroadcastConnections.removeConnection({
-        connectionIndex: state.selectedConnectionIndex,
-        recordUndoSnapshot,
-        render,
-        state
-      });
+      connectionController.removeConnection(state.selectedConnectionIndex);
       event.preventDefault();
     }
     return;
@@ -5048,12 +5007,7 @@ document.addEventListener("keydown", (event) => {
     if (selectedNodeIds.length) {
       removeNodes(selectedNodeIds);
     } else if (state.selectedConnectionIndex !== null) {
-      BroadcastConnections.removeConnection({
-        connectionIndex: state.selectedConnectionIndex,
-        recordUndoSnapshot,
-        render,
-        state
-      });
+      connectionController.removeConnection(state.selectedConnectionIndex);
     }
     event.preventDefault();
   }
