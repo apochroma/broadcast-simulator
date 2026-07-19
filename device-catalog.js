@@ -1,4 +1,7 @@
 window.BroadcastDeviceCatalog = (() => {
+  const SWITCH_PORT_PITCH = 30;
+  const SWITCH_PORT_HEADER_OFFSET = 134;
+
   const gearLibrary = {
     canonCrn100: makeCanonCameraTemplate("Canon CR-N100"),
     canonCrn300: {
@@ -55,7 +58,10 @@ window.BroadcastDeviceCatalog = (() => {
       ]
     },
     skaarhojPtzPro: makePtzControllerTemplate("SKAARHOJ PTZ Pro", "pro"),
-    skaarhojPtzFly: makePtzControllerTemplate("SKAARHOJ PTZ Fly", "fly")
+    skaarhojPtzFly: makePtzControllerTemplate("SKAARHOJ PTZ Fly", "fly"),
+    networkSwitch8: makeNetworkSwitchTemplate("PoE Netzwerk-Switch 8-Port", 8),
+    networkSwitch16: makeNetworkSwitchTemplate("PoE Netzwerk-Switch 16-Port", 16),
+    networkSwitch24: makeNetworkSwitchTemplate("PoE Netzwerk-Switch 24-Port", 24)
   };
 
   const gearEntries = [
@@ -73,7 +79,10 @@ window.BroadcastDeviceCatalog = (() => {
     ["hdmiSplitter", "Distribution", "HDMI Splitter 1x5", "1 HDMI Input, 5 HDMI Outputs"],
     ["monitor", "Monitoring", "Program Monitor", "SDI/HDMI Input und Loop-Out"],
     ["skaarhojPtzPro", "SKAARHOJ PTZ", "PTZ Pro", "1G Ethernet mit PoE, Joystick, Kamera-Auswahl"],
-    ["skaarhojPtzFly", "SKAARHOJ PTZ", "PTZ Fly", "1G Ethernet mit PoE, kompakter Joystick-Controller"]
+    ["skaarhojPtzFly", "SKAARHOJ PTZ", "PTZ Fly", "1G Ethernet mit PoE, kompakter Joystick-Controller"],
+    ["networkSwitch8", "Netzwerk", "PoE Netzwerk-Switch 8-Port", "8x RJ45 / PoE"],
+    ["networkSwitch16", "Netzwerk", "PoE Netzwerk-Switch 16-Port", "16x RJ45 / PoE"],
+    ["networkSwitch24", "Netzwerk", "PoE Netzwerk-Switch 24-Port", "24x RJ45 / PoE"]
   ];
 
   const legacyGearAliases = {
@@ -204,11 +213,36 @@ window.BroadcastDeviceCatalog = (() => {
       width: variant === "pro" ? 520 : 430,
       variant,
       selectedCamera: 1,
-      inputs: [
+      inputs: [],
+      outputs: [
         { id: "poe", label: "PoE / LAN", signal: "RJ45", top: 50 }
-      ],
+      ]
+    };
+  }
+
+  function makeNetworkSwitchTemplate(title, portCount) {
+    return {
+      type: "networkSwitch",
+      title,
+      kicker: "Netzwerk",
+      capabilities: ["network-switch", "poe-powered"],
+      width: 300,
+      portCount,
+      portColumnPitch: SWITCH_PORT_PITCH,
+      inputs: makeLeftEdgePorts("port", portCount, "RJ45"),
       outputs: []
     };
+  }
+
+  function makeLeftEdgePorts(prefix, count, signal) {
+    return Array.from({ length: count }, (_, index) => ({
+      id: `${prefix}-${index + 1}`,
+      label: `${index + 1}`,
+      number: index + 1,
+      signal,
+      // 90° CCW rotation of the former top-edge row: port 1 lands at the bottom, port N at the top
+      topPx: SWITCH_PORT_HEADER_OFFSET + (count - 1 - index) * SWITCH_PORT_PITCH
+    }));
   }
 
   function makeNumberedPorts(prefix, count, signal, labelPrefix, firstTop, step) {

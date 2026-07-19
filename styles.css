@@ -1079,6 +1079,7 @@ body.is-read-only #openGearLibrary {
   padding: 14px 14px 10px;
 }
 
+
 .node-actions {
   display: flex;
   flex-direction: column;
@@ -1270,6 +1271,11 @@ body.is-read-only #openGearLibrary {
 .splitter-face {
   min-height: 96px;
   color: #d8f7ff;
+}
+
+.network-switch-face {
+  min-height: 74px;
+  color: #e4d8ff;
 }
 
 .ptz-panel {
@@ -1487,6 +1493,32 @@ body.is-read-only #openGearLibrary {
   background: #050607;
 }
 
+.camera-preview {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.camera-preview .test-picture,
+.camera-preview .media-surface,
+.camera-preview .source-product-face,
+.camera-preview .source-product-image {
+  height: 100%;
+}
+
+.camera-preview:hover .source-product-image,
+.camera-preview:hover .test-picture,
+.camera-preview:hover .media-surface,
+.camera-preview:hover .source-product-face,
+.camera-preview:hover .ptz-panorama-view {
+  outline: 2px solid rgba(53, 208, 127, 0.55);
+  outline-offset: 2px;
+}
+
 .test-picture {
   position: relative;
   display: grid;
@@ -1496,6 +1528,7 @@ body.is-read-only #openGearLibrary {
   overflow: hidden;
   border-radius: 5px;
   background: #111;
+  container-type: inline-size;
 }
 
 .test-picture::before {
@@ -1515,7 +1548,7 @@ body.is-read-only #openGearLibrary {
   position: relative;
   padding: 0 10px;
   color: #fff;
-  font-size: clamp(1.35rem, 3vw, 2.5rem);
+  font-size: clamp(0.85rem, 11cqw, 2.4rem);
   font-weight: 900;
   text-align: center;
   text-shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
@@ -1587,7 +1620,7 @@ body.is-read-only #openGearLibrary {
 
 .pip-slot .test-picture span {
   padding: 0 4px;
-  font-size: clamp(0.5rem, 1.1vw, 0.82rem);
+  font-size: clamp(0.5rem, 9cqw, 0.82rem);
 }
 
 .pip-slot-top-left {

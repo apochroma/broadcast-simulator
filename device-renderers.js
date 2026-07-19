@@ -67,6 +67,20 @@
     }
 
     renderNodeBody(node) {
+      if (node.type === "camera") {
+        return `
+          <div class="monitor-screen">
+            <button class="camera-preview" type="button" data-action="cycle-source-view" data-node-id="${node.id}">
+              ${this.renderSourcePreview(node)}
+            </button>
+          </div>
+          <div class="monitor-footer">
+            <span class="record-dot"></span>
+            <span>${node.shortName} · ${this.getSourceViewLabel(node)}</span>
+          </div>
+        `;
+      }
+
       if (this.callbacks.isDisplaySourceNode(node)) {
         return `
           <button class="source-visual" type="button" data-action="cycle-source-view" data-node-id="${node.id}">
@@ -74,9 +88,7 @@
           </button>
           <div class="node-meta">
             <span>${node.shortName}</span>
-            ${node.type === "computer"
-              ? `<button class="small-button ${this.state.readOnly ? "is-hidden" : ""}" type="button" data-action="random-media" data-node-id="${node.id}">Random</button>`
-              : `<span>${this.getSourceViewLabel(node)}</span>`}
+            <button class="small-button ${this.state.readOnly ? "is-hidden" : ""}" type="button" data-action="random-media" data-node-id="${node.id}">Random</button>
           </div>
         `;
       }
@@ -117,6 +129,16 @@
 
       if (node.type === "ptzController") {
         return this.renderPtzController(node);
+      }
+
+      if (node.type === "networkSwitch") {
+        return `
+          <div class="simple-device-face network-switch-face" style="min-height: ${node.portCount * node.portColumnPitch}px">PoE Switch<br>${node.portCount}-Port</div>
+          <div class="node-meta">
+            <span>${node.portCount}x RJ45 / PoE</span>
+            <span>Alle Buchsen frei koppelbar</span>
+          </div>
+        `;
       }
 
       return `
@@ -257,6 +279,7 @@
         const selected = this.state.selectedSocket
           && this.state.selectedSocket.nodeId === node.id
           && this.state.selectedSocket.portId === port.id;
+        const position = port.topPx !== undefined ? `top: ${port.topPx}px;` : `top: ${port.top}%;`;
 
         return `
           <button class="socket is-${direction} ${selected ? "is-selected" : ""}"
@@ -266,7 +289,7 @@
             data-port-id="${port.id}"
             data-direction="${direction}"
             data-signal="${port.signal}"
-            style="top: ${port.top}%; --socket-color: ${this.config.signalColors[port.signal] ?? this.config.signalColors.SDI}"
+            style="${position} --socket-color: ${this.config.signalColors[port.signal] ?? this.config.signalColors.SDI}"
             title="${port.label} (${port.signal})">
             <span class="socket-label">${port.label}</span>
           </button>

@@ -1997,10 +1997,9 @@ function renderSignalPicture(source) {
 }
 
 function renderProgramSourcePicture(source) {
-  if (isPtzPanoramaSource(source)) {
-    return renderPtzPanoramaPicture(source);
-  }
-
+  // Mirror exactly what the source node itself is showing (color test pattern,
+  // product photo, or live PTZ panorama crop in media mode) instead of forcing
+  // the panorama regardless of the camera's own selected view mode.
   return deviceRenderer.renderSourcePreview(source);
 }
 
@@ -2909,27 +2908,64 @@ function moveSelectedPtzCamera(controller, x, y, zoomDirection = 0, elapsed = 1 
 function getPtzControlledCamera(controller) {
   const cameraNumber = Number(controller?.selectedCamera ?? 1);
 
-  if (!Number.isInteger(cameraNumber)) {
+  if (!Number.isInteger(cameraNumber) || cameraNumber < 1 || !controller) {
     return null;
   }
 
-  const activeSwitcher = getActiveSwitcher();
-  const switcherInputSource = activeSwitcher
-    ? resolveNodeInputSource(activeSwitcher, `input-${cameraNumber}`)
-    : null;
+  // Camera slot buttons are ordinal positions among whatever cameras this
+  // controller can actually reach over the network, not a match against a
+  // camera's display name/number, so control works regardless of naming.
+  const reachableCameras = getLanReachableCameras(controller);
 
-  if (switcherInputSource?.type === "camera") {
-    return switcherInputSource;
+  return reachableCameras[cameraNumber - 1] ?? null;
+}
+
+// PTZ control travels the RJ45/PoE cabling graph (hopping through any number of
+// networkSwitch nodes, which relay between all of their ports) rather than the
+// ATEM switcher's video input wiring, since a SKAARHOJ controls whatever camera
+// it can actually reach over the network, regardless of where the video goes.
+function getLanReachableCameras(controller) {
+  const rj45Connections = state.connections.filter((connection) => connection.signal === "RJ45");
+  const visited = new Set([controller.id]);
+  const queue = [controller.id];
+  const cameras = [];
+
+  while (queue.length) {
+    const currentId = queue.shift();
+    const neighborIds = new Set();
+
+    rj45Connections.forEach((connection) => {
+      if (connection.from.nodeId === currentId) {
+        neighborIds.add(connection.to.nodeId);
+      }
+      if (connection.to.nodeId === currentId) {
+        neighborIds.add(connection.from.nodeId);
+      }
+    });
+
+    neighborIds.forEach((neighborId) => {
+      if (visited.has(neighborId)) {
+        return;
+      }
+      visited.add(neighborId);
+
+      const neighborNode = getNode(neighborId);
+
+      if (!neighborNode) {
+        return;
+      }
+
+      if (neighborNode.type === "camera") {
+        cameras.push(neighborNode);
+      } else if (neighborNode.type === "networkSwitch") {
+        queue.push(neighborId);
+      }
+    });
   }
 
-  return state.nodes.find((node) => (
-    node.type === "camera"
-    && (
-      node.shortName === `CAM ${cameraNumber}`
-      || node.shortName === `CAM${cameraNumber}`
-      || node.title.endsWith(` ${cameraNumber}`)
-    )
-  )) ?? null;
+  // Stable slot order (independent of connection/discovery order): cameras
+  // keep the same "Cam N" position for as long as they exist in the project.
+  return cameras.sort((a, b) => state.nodes.indexOf(a) - state.nodes.indexOf(b));
 }
 
 function normalizePtzState(ptz) {
@@ -3604,10 +3640,17 @@ function isDialogOpen() {
 }
 
 function isValidConnection(from, to) {
-  return from.direction === "output"
-    && to.direction === "input"
-    && from.nodeId !== to.nodeId
-    && from.signal === to.signal;
+  if (from.nodeId === to.nodeId || from.signal !== to.signal) {
+    return false;
+  }
+
+  if (from.signal === "RJ45") {
+    // Ethernet/PoE jacks are bidirectional, so any two RJ45 ports may be
+    // cabled together (e.g. switch-to-switch uplinks), unlike video signals.
+    return true;
+  }
+
+  return from.direction === "output" && to.direction === "input";
 }
 
 function removeNode(nodeId) {

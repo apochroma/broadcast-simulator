@@ -196,8 +196,7 @@ window.BroadcastConnections = (() => {
   function getSnapTarget({ deviceLayer, event, fromSocket, isValidConnection, snapDistance, workspace, zoom }) {
     const workspaceRect = workspace.getBoundingClientRect();
     const pointer = { x: event.clientX, y: event.clientY };
-    const oppositeDirection = fromSocket.direction === "output" ? "input" : "output";
-    const candidates = [...deviceLayer.querySelectorAll(`[data-action='socket'][data-direction='${oppositeDirection}']`)];
+    const candidates = [...deviceLayer.querySelectorAll(`[data-action='socket']`)];
     let nearest = null;
 
     candidates.forEach((socketElement) => {
@@ -249,6 +248,8 @@ window.BroadcastConnections = (() => {
     connections.splice(0, connections.length, ...connections.filter((connection) => !(
       (connection.from.nodeId === from.nodeId && connection.from.portId === from.portId)
       || (connection.to.nodeId === to.nodeId && connection.to.portId === to.portId)
+      || (connection.from.nodeId === to.nodeId && connection.from.portId === to.portId)
+      || (connection.to.nodeId === from.nodeId && connection.to.portId === from.portId)
     )));
     connections.push({
       signal: from.signal,
@@ -362,7 +363,7 @@ window.BroadcastConnections = (() => {
     setActiveDrag(null);
     setSuppressNextSocketClick(true);
 
-    if (dropTarget?.dataset.direction && dropTarget.dataset.direction !== cableDrag.from.direction) {
+    if (dropTarget?.dataset.direction) {
       connectSockets(cableDrag.from, getSocketData(dropTarget));
     } else {
       render();
