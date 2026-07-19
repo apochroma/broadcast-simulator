@@ -239,14 +239,14 @@ function addRodeWirelessSet() {
   const transmitter1 = state.nodes.at(-1);
   transmitter1.position = {
     x: receiver.position.x - transmitter1.width - 60,
-    y: receiver.position.y - 60
+    y: receiver.position.y - 200
   };
 
   addGear("rodeWirelessGo2Transmitter");
   const transmitter2 = state.nodes.at(-1);
   transmitter2.position = {
     x: receiver.position.x - transmitter2.width - 60,
-    y: receiver.position.y + 340
+    y: receiver.position.y + 200
   };
 
   // The kit's mics are pre-paired to the receiver's two channels, just like
@@ -2559,6 +2559,10 @@ function resolveSourceFromPort(portRef, visited = new Set()) {
     return node;
   }
 
+  if (node.type === "wirelessReceiver" && portRef.portId === "mic-out") {
+    return node;
+  }
+
   if (visited.has(`${portRef.nodeId}:${portRef.portId}`)) {
     return null;
   }
@@ -2589,6 +2593,10 @@ function getConnectionAudioMarkers(connection) {
   const fromNode = getNode(connection.from.nodeId);
   const toNode = getNode(connection.to.nodeId);
 
+  if (fromNode?.type === "wirelessReceiver" && connection.from.portId === "mic-out") {
+    return getWirelessReceiverMicOutMarkers(fromNode, toNode, connection.to.portId);
+  }
+
   if (toNode?.type === "switcher" && connection.to.portId.startsWith("input-")) {
     const input = Number(connection.to.portId.replace("input-", ""));
     const marker = Number.isInteger(input) ? getSwitcherInputAudioMarker(toNode, input) : null;
@@ -2609,11 +2617,36 @@ function getConnectionAudioMarkers(connection) {
     return [{
       id: `${connection.from.nodeId}-${connection.from.portId}`,
       label: fromNode?.title ?? "Wireless Mic",
-      color: signalColors.Wireless
+      color: getWirelessChannelColor(connection.to.portId)
     }];
   }
 
   return [];
+}
+
+// Each wireless channel gets its own note color so the mic feeding the sound
+// stays visually traceable once it's mixed down onto the receiver's Mic Out.
+function getWirelessChannelColor(channelPortId) {
+  return channelPortId === "wireless-in-2" ? "#f5f5f5" : "#f4c453";
+}
+
+function getWirelessReceiverMicOutMarkers(receiver, toNode, toPortId) {
+  // The receiver's single 3.5mm output only "arrives" at the mixer once the
+  // ATEM mic channel it's plugged into is actually switched on.
+  const micId = toPortId?.startsWith("mic-in-") ? `mic${toPortId.replace("mic-in-", "")}` : null;
+  const micIsOn = toNode?.type === "switcher" && micId && getSwitcherMicAudioMode(toNode, micId) === "on";
+
+  if (!micIsOn) {
+    return [];
+  }
+
+  return ["wireless-in-1", "wireless-in-2"]
+    .filter((portId) => isPortConnected(receiver.id, portId))
+    .map((portId) => ({
+      id: `${receiver.id}-${portId}-mic-out`,
+      label: portId === "wireless-in-1" ? "CH 1" : "CH 2",
+      color: getWirelessChannelColor(portId)
+    }));
 }
 
 function isSwitcherAudioOutput(portId) {
