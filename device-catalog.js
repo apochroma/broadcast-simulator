@@ -61,7 +61,32 @@ window.BroadcastDeviceCatalog = (() => {
     skaarhojPtzFly: makePtzControllerTemplate("SKAARHOJ PTZ Fly", "fly"),
     networkSwitch8: makeNetworkSwitchTemplate("PoE Netzwerk-Switch 8-Port", 8),
     networkSwitch16: makeNetworkSwitchTemplate("PoE Netzwerk-Switch 16-Port", 16),
-    networkSwitch24: makeNetworkSwitchTemplate("PoE Netzwerk-Switch 24-Port", 24)
+    networkSwitch24: makeNetworkSwitchTemplate("PoE Netzwerk-Switch 24-Port", 24),
+    rodeWirelessGo2Receiver: {
+      type: "wirelessReceiver",
+      title: "RODE Wireless GO II Receiver",
+      kicker: "Funkempfänger",
+      capabilities: ["audio-source", "wireless-receiver"],
+      width: 220,
+      inputs: [
+        { id: "wireless-in-1", label: "CH 1", signal: "Wireless", top: 38 },
+        { id: "wireless-in-2", label: "CH 2", signal: "Wireless", top: 62 }
+      ],
+      outputs: [
+        { id: "mic-out", label: "Mic Out", signal: "Mic 3.5mm", top: 50 }
+      ]
+    },
+    rodeWirelessGo2Transmitter: {
+      type: "wirelessTransmitter",
+      title: "RODE Wireless GO II Transmitter",
+      kicker: "Funkmikrofon",
+      capabilities: ["audio-source", "wireless-transmitter"],
+      width: 220,
+      inputs: [],
+      outputs: [
+        { id: "wireless-out", label: "Wireless", signal: "Wireless", top: 50 }
+      ]
+    }
   };
 
   const gearEntries = [
@@ -82,7 +107,8 @@ window.BroadcastDeviceCatalog = (() => {
     ["skaarhojPtzFly", "SKAARHOJ PTZ", "PTZ Fly", "1G Ethernet mit PoE, kompakter Joystick-Controller"],
     ["networkSwitch8", "Netzwerk", "PoE Netzwerk-Switch 8-Port", "8x RJ45 / PoE"],
     ["networkSwitch16", "Netzwerk", "PoE Netzwerk-Switch 16-Port", "16x RJ45 / PoE"],
-    ["networkSwitch24", "Netzwerk", "PoE Netzwerk-Switch 24-Port", "24x RJ45 / PoE"]
+    ["networkSwitch24", "Netzwerk", "PoE Netzwerk-Switch 24-Port", "24x RJ45 / PoE"],
+    ["rodeWirelessGo2Set", "RODE", "Wireless GO II (Set)", "1x Receiver + 2x Transmitter, 3.5mm Mic Out, koppelt drahtlos"]
   ];
 
   const legacyGearAliases = {

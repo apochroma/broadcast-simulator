@@ -15,6 +15,7 @@
   --signal-audio: #ffcc66;
   --signal-headphones: #ff9f43;
   --signal-network: #9b7bff;
+  --signal-wireless: #ff6fb3;
   --audio-note-1: #d65aff;
   --audio-note-2: #ff4f6a;
   --audio-note-3: #55e6a5;
@@ -1027,6 +1028,10 @@ body.is-read-only #openGearLibrary {
   stroke-width: 5;
 }
 
+.cable-layer path.is-wireless {
+  stroke-dasharray: 7 6;
+}
+
 .cable-layer text {
   fill: var(--muted);
   font-size: 12px;
@@ -1516,6 +1521,120 @@ body.is-read-only #openGearLibrary {
     0 0 0 2px rgba(255, 255, 255, 0.78),
     0 0 16px rgba(139, 255, 65, 0.6),
     0 3px 0 rgba(0, 0, 0, 0.34);
+}
+
+.rode-panel {
+  position: relative;
+  display: grid;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  justify-items: center;
+  align-content: center;
+  gap: 10px;
+  padding: 22px 14px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14), transparent 14%, rgba(0, 0, 0, 0.24) 100%),
+    linear-gradient(135deg, #3a3a3c, #201f22 55%, #08080a);
+  box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.3);
+}
+
+.rode-clip {
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  width: 34px;
+  height: 12px;
+  transform: translateX(-50%);
+  border-radius: 3px;
+  background: linear-gradient(180deg, #4a4a4c, #1c1c1e);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+.rode-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 32% 28%, #ffe2a8, #e8a84c 55%, #b6772a);
+  box-shadow: 0 0 6px rgba(232, 168, 76, 0.55);
+}
+
+.rode-wordmark {
+  color: #f4f4f4;
+  font-size: 1.05rem;
+  font-weight: 1000;
+  letter-spacing: 0.03em;
+}
+
+.rode-model {
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.rode-model strong {
+  color: #f4c453;
+}
+
+.rode-screen {
+  display: flex;
+  gap: 14px;
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 4px;
+  background: #050607;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.08);
+}
+
+.rode-channel {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.rode-channel-num {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.7rem;
+  font-weight: 900;
+}
+
+.rode-signal-bar {
+  position: relative;
+  width: 46px;
+  height: 8px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.rode-signal-bar i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--level, 0%);
+  border-radius: 2px;
+  background: linear-gradient(90deg, #18c733 0 66.67%, #e0d31f 66.67% 83.33%, #f02a34 83.33%);
+  background-size: 138px 100%;
+  background-position: left;
+}
+
+.rode-signal-bar.is-active i {
+  box-shadow: 0 0 6px rgba(53, 208, 127, 0.6);
+  animation: rodeMeterPulse 760ms ease-in-out infinite alternate;
+}
+
+@keyframes rodeMeterPulse {
+  from {
+    width: var(--level-low);
+  }
+
+  to {
+    width: var(--level-high);
+  }
 }
 
 .monitor-screen {

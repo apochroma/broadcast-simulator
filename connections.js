@@ -142,6 +142,10 @@ window.BroadcastConnections = (() => {
     if (selected) {
       path.classList.add("is-selected");
     }
+    if (signal === "Wireless") {
+      // A wireless mic link isn't a real cable, so draw it dashed.
+      path.classList.add("is-wireless");
+    }
 
     if (connectionIndex !== null) {
       hitPath.setAttribute("d", cablePath.d);

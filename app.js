@@ -10,7 +10,8 @@ const signalColors = {
   "Mic 3.5mm": cssVar("--signal-audio"),
   "Headphone 3.5mm": cssVar("--signal-headphones"),
   XLR: cssVar("--signal-audio"),
-  Network: cssVar("--signal-network")
+  Network: cssVar("--signal-network"),
+  Wireless: cssVar("--signal-wireless")
 };
 
 const uiIcons = {
@@ -219,6 +220,43 @@ function addGear(type, customTemplate) {
     ensureSwitcherMediaPools(node);
   }
 
+  render();
+}
+
+// The RODE Wireless GO II is sold and used as a matched set (1 receiver + 2
+// transmitters), so the catalog offers it as a single "kit" entry that drops
+// all three nodes at once, laid out next to each other, instead of forcing
+// the user to add each piece separately.
+function addRodeWirelessSet() {
+  if (state.readOnly) {
+    return;
+  }
+
+  addGear("rodeWirelessGo2Receiver");
+  const receiver = state.nodes.at(-1);
+
+  addGear("rodeWirelessGo2Transmitter");
+  const transmitter1 = state.nodes.at(-1);
+  transmitter1.position = {
+    x: receiver.position.x - transmitter1.width - 60,
+    y: receiver.position.y - 60
+  };
+
+  addGear("rodeWirelessGo2Transmitter");
+  const transmitter2 = state.nodes.at(-1);
+  transmitter2.position = {
+    x: receiver.position.x - transmitter2.width - 60,
+    y: receiver.position.y + 340
+  };
+
+  // The kit's mics are pre-paired to the receiver's two channels, just like
+  // a real Wireless GO II ships already synced out of the box.
+  state.connections.push(
+    { signal: "Wireless", from: { nodeId: transmitter1.id, portId: "wireless-out" }, to: { nodeId: receiver.id, portId: "wireless-in-1" } },
+    { signal: "Wireless", from: { nodeId: transmitter2.id, portId: "wireless-out" }, to: { nodeId: receiver.id, portId: "wireless-in-2" } }
+  );
+
+  setSelectedNodes([receiver.id, transmitter1.id, transmitter2.id], receiver.id);
   render();
 }
 
@@ -1622,6 +1660,17 @@ function getAudioMeterDynamicRange(db) {
   };
 }
 
+// Same dB/percent/pulse-range math the ATEM meter popover uses, applied to a
+// wireless mic channel directly (no gain/fader state to factor in here).
+function getWirelessChannelMeter(channelNum) {
+  const db = getAudioMeterDb(`rode-ch${channelNum}`, 0, 0, channelNum - 1, true);
+
+  return {
+    percent: getAudioMeterPercent(db),
+    range: getAudioMeterDynamicRange(db)
+  };
+}
+
 function getAudioMeterStatusLabel(mode, audible, source) {
   if (!source) {
     return "Kein Eingangssignal";
@@ -2556,6 +2605,14 @@ function getConnectionAudioMarkers(connection) {
     return getSwitcherAudioMixMarkers(fromNode);
   }
 
+  if (connection.signal === "Wireless") {
+    return [{
+      id: `${connection.from.nodeId}-${connection.from.portId}`,
+      label: fromNode?.title ?? "Wireless Mic",
+      color: signalColors.Wireless
+    }];
+  }
+
   return [];
 }
 
@@ -2712,6 +2769,7 @@ deviceRenderer = new BroadcastDeviceRenderers.DeviceRenderer({
     getSwitcherProgramSource,
     getSwitcherReadout,
     getSwitcherTransitionDurationMs,
+    getWirelessChannelMeter,
     isDisplaySourceNode,
     isPortConnected,
     isPtzPanoramaSource,
@@ -4186,7 +4244,13 @@ gearList.addEventListener("click", (event) => {
 
   const button = event.target.closest("[data-add-gear]");
 
-  if (button) {
+  if (!button) {
+    return;
+  }
+
+  if (button.dataset.addGear === "rodeWirelessGo2Set") {
+    addRodeWirelessSet();
+  } else {
     addGear(button.dataset.addGear);
   }
 });

@@ -162,6 +162,14 @@
         `;
       }
 
+      if (node.type === "wirelessReceiver") {
+        return this.renderRodeReceiver(node);
+      }
+
+      if (node.type === "wirelessTransmitter") {
+        return this.renderRodeTransmitter(node);
+      }
+
       return `
         <div class="simple-device-face">${node.title}</div>
         <div class="node-meta">
@@ -236,6 +244,58 @@
         <div class="node-meta">
           <span>PoE Controller</span>
           <span>CAM ${node.selectedCamera ?? 1}</span>
+        </div>
+      `;
+    }
+
+    renderRodeReceiver(node) {
+      const channels = [
+        { num: 1, portId: "wireless-in-1" },
+        { num: 2, portId: "wireless-in-2" }
+      ];
+
+      const channelBars = channels.map(({ num, portId }) => {
+        const active = this.callbacks.isPortConnected(node.id, portId);
+        const meter = active ? this.callbacks.getWirelessChannelMeter(num) : null;
+        const style = meter
+          ? `--level: ${meter.percent}%; --level-low: ${meter.range.low}%; --level-high: ${meter.range.high}%`
+          : "";
+
+        return `
+          <div class="rode-channel">
+            <span class="rode-channel-num">${num}</span>
+            <span class="rode-signal-bar ${active ? "is-active" : ""}">
+              <i style="${style}"></i>
+            </span>
+          </div>
+        `;
+      }).join("");
+
+      return `
+        <div class="rode-panel is-receiver">
+          <span class="rode-dot"></span>
+          <div class="rode-wordmark">RØDE</div>
+          <div class="rode-screen">${channelBars}</div>
+          <div class="rode-model">WIRELESS <strong>GO</strong> II</div>
+        </div>
+        <div class="node-meta">
+          <span>Funkempfänger</span>
+          <span>2x Kanal</span>
+        </div>
+      `;
+    }
+
+    renderRodeTransmitter(node) {
+      return `
+        <div class="rode-panel is-transmitter">
+          <span class="rode-clip"></span>
+          <span class="rode-dot"></span>
+          <div class="rode-wordmark">RØDE</div>
+          <div class="rode-model">WIRELESS <strong>GO</strong> II</div>
+        </div>
+        <div class="node-meta">
+          <span>Funkmikrofon</span>
+          <span>Wireless Out</span>
         </div>
       `;
     }
