@@ -2713,6 +2713,7 @@ deviceRenderer = new BroadcastDeviceRenderers.DeviceRenderer({
     getSwitcherReadout,
     getSwitcherTransitionDurationMs,
     isDisplaySourceNode,
+    isPortConnected,
     isPtzPanoramaSource,
     isNodeSelected,
     normalizeSourceViewMode,
@@ -3695,6 +3696,13 @@ function isValidConnection(from, to) {
   }
 
   return from.direction === "output" && to.direction === "input";
+}
+
+function isPortConnected(nodeId, portId) {
+  return state.connections.some((connection) => (
+    (connection.from.nodeId === nodeId && connection.from.portId === portId)
+    || (connection.to.nodeId === nodeId && connection.to.portId === portId)
+  ));
 }
 
 function removeNode(nodeId) {

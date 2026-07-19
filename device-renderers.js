@@ -50,6 +50,7 @@
           style="width: ${node.width}px; transform: translate(${node.position.x}px, ${node.position.y}px); --transition-duration: ${this.callbacks.getSwitcherTransitionDurationMs(node)}ms">
           ${this.renderSockets(node, "input")}
           ${this.renderSockets(node, "output")}
+          ${this.renderPortActivityLeds(node)}
           <div class="node-header drag-handle">
             <div>
               <p class="node-kicker">${node.kicker}</p>
@@ -315,6 +316,27 @@
           </button>
         `;
       }).join("");
+    }
+
+    // PoE switches show a small flickering link/activity LED next to any port
+    // that has a cable plugged in, mimicking a real switch's port lights.
+    renderPortActivityLeds(node) {
+      if (node.type !== "networkSwitch") {
+        return "";
+      }
+
+      return node.inputs
+        .filter((port) => this.callbacks.isPortConnected(node.id, port.id))
+        .map((port) => {
+          const duration = (0.9 + Math.random() * 1.3).toFixed(2);
+          const delay = (Math.random() * 2).toFixed(2);
+
+          return `
+            <span class="port-activity-led"
+              style="top: ${port.topPx}px; animation-duration: ${duration}s; animation-delay: -${delay}s;"
+              aria-hidden="true"></span>
+          `;
+        }).join("");
     }
   }
 

@@ -2702,6 +2702,37 @@ body.is-read-only #openGearLibrary {
   }
 }
 
+.port-activity-led {
+  position: absolute;
+  left: 18px;
+  z-index: 3;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #35d07f;
+  box-shadow: 0 0 4px 1px rgba(53, 208, 127, 0.8);
+  transform: translateY(-50%);
+  pointer-events: none;
+  animation: portLedFlicker 1.4s steps(1) infinite;
+}
+
+@keyframes portLedFlicker {
+  0%, 39% {
+    background: #35d07f;
+    box-shadow: 0 0 4px 1px rgba(53, 208, 127, 0.8);
+  }
+
+  40%, 69% {
+    background: #d9e021;
+    box-shadow: 0 0 4px 1px rgba(217, 224, 33, 0.8);
+  }
+
+  70%, 100% {
+    background: #35d07f;
+    box-shadow: 0 0 4px 1px rgba(53, 208, 127, 0.8);
+  }
+}
+
 .socket {
   position: absolute;
   z-index: 3;
