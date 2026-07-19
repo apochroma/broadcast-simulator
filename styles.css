@@ -839,7 +839,7 @@ body.is-read-only #openGearLibrary {
 
 .port-row {
   display: grid;
-  grid-template-columns: 72px 1fr 130px auto;
+  grid-template-columns: 72px 1fr 130px;
   gap: 8px;
   align-items: center;
   min-height: 38px;
@@ -849,11 +849,43 @@ body.is-read-only #openGearLibrary {
   background: rgba(255, 255, 255, 0.04);
 }
 
+.port-row.is-editable {
+  grid-template-columns: 20px 72px 1fr 130px auto;
+}
+
+.port-row.is-dragging {
+  opacity: 0.5;
+}
+
 .port-row span,
 .port-row em {
   color: var(--muted);
   font-style: normal;
   font-weight: 900;
+}
+
+.port-drag-handle {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  cursor: grab;
+}
+
+.port-row-label {
+  min-height: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  padding: 0 8px;
+  background: #11161b;
+  color: var(--text);
+  font: inherit;
+  font-weight: 900;
+}
+
+.edit-note {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
 }
 
 .zoom-controls {
@@ -1082,7 +1114,8 @@ body.is-read-only #openGearLibrary {
 
 .node-actions {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
   gap: 6px;
 }
 
@@ -1761,6 +1794,19 @@ body.is-read-only #openGearLibrary {
 .small-button.danger {
   background: rgba(255, 52, 72, 0.18);
   color: #ffd4d8;
+}
+
+.small-button.icon-button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  min-height: 32px;
+  padding: 0;
+}
+
+.icon-button svg {
+  width: 16px;
+  height: 16px;
 }
 
 .switcher {

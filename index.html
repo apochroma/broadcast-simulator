@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Broadcast Signalfluss Simulation</title>
-    <link rel="stylesheet" href="styles.css?v=camera-monitor-style-2">
+    <link rel="stylesheet" href="styles.css?v=port-editor-1">
   </head>
   <body>
     <main class="app-shell">
@@ -109,14 +109,22 @@
             <p class="node-kicker">Custom Gear</p>
             <h3>Eigenes Device definieren</h3>
           </div>
+          <label class="edit-field">
+            Name
+            <input id="customGearName" type="text" placeholder="z.B. Audio Embedder">
+          </label>
+          <div class="port-list" id="customGearPortList"></div>
           <div class="custom-grid">
             <label>
-              Name
-              <input id="customGearName" type="text" placeholder="z.B. Audio Embedder">
+              Richtung
+              <select id="customGearPortDirection">
+                <option value="input">Input</option>
+                <option value="output">Output</option>
+              </select>
             </label>
             <label>
               Kategorie
-              <select id="customGearSignal">
+              <select id="customGearPortSignal">
                 <option value="SDI">SDI</option>
                 <option value="HDMI">HDMI</option>
                 <option value="USB-C">USB-C</option>
@@ -128,13 +136,15 @@
               </select>
             </label>
             <label>
-              Inputs
-              <input id="customGearInputs" type="number" min="0" max="12" value="1">
+              Label
+              <input id="customGearPortLabel" type="text" placeholder="z.B. HDMI 1">
             </label>
-            <label>
-              Outputs
-              <input id="customGearOutputs" type="number" min="0" max="12" value="1">
-            </label>
+            <button class="small-button icon-button align-end" type="button" id="addCustomGearPort" title="Buchse hinzufügen" aria-label="Buchse hinzufügen">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="12" y1="5" x2="12" y2="19"/>
+                <line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+            </button>
           </div>
           <button class="library-button" type="button" id="addCustomGear">Custom Gear hinzufügen</button>
         </section>
@@ -162,7 +172,8 @@
             <h3>Inputs und Outputs</h3>
           </div>
           <div class="port-list" id="editPortList"></div>
-          <div class="custom-grid">
+          <p class="edit-note is-hidden" id="editPortLockedNote">Vordefinierte Devices sind mit festen Buchsen gebaut und können hier nicht verändert werden.</p>
+          <div class="custom-grid" id="editPortAddRow">
             <label>
               Richtung
               <select id="editPortDirection">
@@ -187,7 +198,12 @@
               Label
               <input id="editPortLabel" type="text" placeholder="z.B. HDMI 1">
             </label>
-            <button class="library-button align-end" type="button" id="addEditPort">Buchse hinzufügen</button>
+            <button class="small-button icon-button align-end" type="button" id="addEditPort" title="Buchse hinzufügen" aria-label="Buchse hinzufügen">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="12" y1="5" x2="12" y2="19"/>
+                <line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+            </button>
           </div>
         </section>
 
@@ -222,7 +238,7 @@
     <script src="atem.js?v=ftb-chain-1"></script>
     <script src="atem-audio.js?v=atem-audio-1"></script>
     <script src="atem-media.js?v=atem-media-1"></script>
-    <script src="device-renderers.js?v=camera-monitor-style-2"></script>
-    <script src="app.js?v=camera-monitor-style-2"></script>
+    <script src="device-renderers.js?v=icon-actions-2"></script>
+    <script src="app.js?v=port-editor-4"></script>
   </body>
 </html>

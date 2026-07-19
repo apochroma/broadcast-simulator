@@ -4,6 +4,22 @@
       this.callbacks = callbacks;
       this.config = config;
       this.state = state;
+      this.icons = {
+        edit: `
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/>
+          </svg>
+        `,
+        remove: `
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            <line x1="10" y1="11" x2="10" y2="17"/>
+            <line x1="14" y1="11" x2="14" y2="17"/>
+          </svg>
+        `
+      };
     }
 
     renderNode(node) {
@@ -41,8 +57,12 @@
             </div>
             <div class="node-actions ${this.state.readOnly ? "is-hidden" : ""}">
               ${node.type === "switcher" ? this.renderSwitcherModeButton(node) : ""}
-              <button class="small-button" type="button" data-action="edit-node" data-node-id="${node.id}">Bearbeiten</button>
-              <button class="small-button danger" type="button" data-action="remove-node" data-node-id="${node.id}">Entfernen</button>
+              <button class="small-button icon-button" type="button" data-action="edit-node" data-node-id="${node.id}" title="Bearbeiten" aria-label="Bearbeiten">
+                ${this.icons.edit}
+              </button>
+              <button class="small-button icon-button danger" type="button" data-action="remove-node" data-node-id="${node.id}" title="Entfernen" aria-label="Entfernen">
+                ${this.icons.remove}
+              </button>
             </div>
           </div>
           <div class="node-body">

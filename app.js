@@ -13,6 +13,47 @@ const signalColors = {
   Network: cssVar("--signal-network")
 };
 
+const uiIcons = {
+  minus: `
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <line x1="5" y1="12" x2="19" y2="12"/>
+    </svg>
+  `,
+  dragHandle: `
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">
+      <circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/>
+      <circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/>
+      <circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/>
+    </svg>
+  `
+};
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  }[char]));
+}
+
+function makePortId(direction) {
+  // Date.now() alone can collide when ports are added in the same millisecond.
+  return `${direction}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function makePortLabel(existingPorts, signal) {
+  const takenLabels = new Set(existingPorts.filter((port) => port.signal === signal).map((port) => port.label));
+  let index = 1;
+
+  while (takenLabels.has(`${signal} ${index}`)) {
+    index += 1;
+  }
+
+  return `${signal} ${index}`;
+}
+
 const sourceLooks = [
   { color: "#f72585", pattern: "linear-gradient(135deg, #5a189a, #f72585 52%, #4cc9f0)" },
   { color: "#2dd4bf", pattern: "linear-gradient(135deg, #0f766e, #2dd4bf 52%, #a7f3d0)" },
@@ -29,8 +70,7 @@ const {
   gearEntries,
   legacyGearAliases,
   switcherMediaSources,
-  pipPresets,
-  makeNumberedPorts
+  pipPresets
 } = window.BroadcastDeviceCatalog;
 
 const WORLD_WIDTH = 12000;
@@ -98,6 +138,9 @@ const editGearDialog = document.querySelector("#editGearDialog");
 const editGearHeading = document.querySelector("#editGearHeading");
 const editGearName = document.querySelector("#editGearName");
 const editPortList = document.querySelector("#editPortList");
+const editPortAddRow = document.querySelector("#editPortAddRow");
+const editPortLockedNote = document.querySelector("#editPortLockedNote");
+const customGearPortList = document.querySelector("#customGearPortList");
 const mediaPoolDialog = document.querySelector("#mediaPoolDialog");
 const mediaPoolHeading = document.querySelector("#mediaPoolHeading");
 const mediaPoolGrid = document.querySelector("#mediaPoolGrid");
@@ -108,6 +151,7 @@ let activeDrag = null;
 let suppressNextSocketClick = false;
 let suppressNextNodeClick = false;
 let editDraft = null;
+let customGearDraft = { inputs: [], outputs: [] };
 let gearFilter = "";
 let copiedNodeSnapshot = null;
 let undoStack = [];
@@ -3721,6 +3765,7 @@ function openEditGear(nodeId) {
   editDraft = {
     nodeId,
     title: node.title,
+    editable: node.type === "custom",
     inputs: node.inputs.map((port) => ({ ...port })),
     outputs: node.outputs.map((port) => ({ ...port }))
   };
@@ -3728,6 +3773,142 @@ function openEditGear(nodeId) {
   editGearName.value = node.title;
   renderEditPortList();
   editGearDialog.showModal();
+}
+
+// Predefined devices ship with a fixed set of sockets; only user-created
+// Custom Gear may have its ports added, removed, relabeled, or reordered.
+function renderPortRows(rows, editable) {
+  if (!editable) {
+    return rows.map((port) => `
+      <div class="port-row">
+        <span>${port.direction === "input" ? "Input" : "Output"}</span>
+        <strong>${port.label}</strong>
+        <em>${port.signal}</em>
+      </div>
+    `).join("");
+  }
+
+  return rows.map((port) => `
+    <div class="port-row is-editable" draggable="true" data-port-direction="${port.direction}" data-port-id="${port.id}">
+      <span class="port-drag-handle" title="Ziehen zum Sortieren" aria-hidden="true">${uiIcons.dragHandle}</span>
+      <span>${port.direction === "input" ? "Input" : "Output"}</span>
+      <input class="port-row-label" type="text" value="${escapeHtml(port.label)}" data-port-direction="${port.direction}" data-port-id="${port.id}">
+      <em>${port.signal}</em>
+      <button class="small-button icon-button danger" type="button" data-remove-port="${port.direction}:${port.id}" title="Entfernen" aria-label="Entfernen">
+        ${uiIcons.minus}
+      </button>
+    </div>
+  `).join("");
+}
+
+function setupPortListInteractions(listElement, getDraft, rerender) {
+  let dragPort = null;
+
+  listElement.addEventListener("input", (event) => {
+    const input = event.target.closest(".port-row-label");
+    const draft = getDraft();
+
+    if (!input || !draft) {
+      return;
+    }
+
+    const key = input.dataset.portDirection === "input" ? "inputs" : "outputs";
+    const port = draft[key].find((candidate) => candidate.id === input.dataset.portId);
+
+    if (port) {
+      port.label = input.value;
+    }
+  });
+
+  // Clearing a label out entirely falls back to an auto-numbered "<Signal> N"
+  // name, same as leaving the "Label" field blank when first adding a port.
+  listElement.addEventListener("focusout", (event) => {
+    const input = event.target.closest(".port-row-label");
+    const draft = getDraft();
+
+    if (!input || !draft || input.value.trim()) {
+      return;
+    }
+
+    const key = input.dataset.portDirection === "input" ? "inputs" : "outputs";
+    const port = draft[key].find((candidate) => candidate.id === input.dataset.portId);
+
+    if (!port) {
+      return;
+    }
+
+    port.label = makePortLabel(draft[key].filter((candidate) => candidate.id !== port.id), port.signal);
+    input.value = port.label;
+  });
+
+  listElement.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-remove-port]");
+    const draft = getDraft();
+
+    if (!button || !draft) {
+      return;
+    }
+
+    const [direction, portId] = button.dataset.removePort.split(":");
+    const key = direction === "input" ? "inputs" : "outputs";
+
+    draft[key] = draft[key].filter((port) => port.id !== portId);
+    normalizePortPositions(draft.inputs);
+    normalizePortPositions(draft.outputs);
+    rerender();
+  });
+
+  listElement.addEventListener("dragstart", (event) => {
+    const row = event.target.closest(".port-row[draggable='true']");
+
+    if (!row) {
+      return;
+    }
+
+    dragPort = { direction: row.dataset.portDirection, portId: row.dataset.portId };
+    event.dataTransfer.effectAllowed = "move";
+    row.classList.add("is-dragging");
+  });
+
+  listElement.addEventListener("dragend", (event) => {
+    event.target.closest(".port-row")?.classList.remove("is-dragging");
+    dragPort = null;
+  });
+
+  listElement.addEventListener("dragover", (event) => {
+    const row = event.target.closest(".port-row[draggable='true']");
+
+    if (!dragPort || !row || row.dataset.portDirection !== dragPort.direction) {
+      return;
+    }
+
+    event.preventDefault();
+  });
+
+  listElement.addEventListener("drop", (event) => {
+    const row = event.target.closest(".port-row[draggable='true']");
+    const draft = getDraft();
+
+    if (!dragPort || !row || !draft || row.dataset.portDirection !== dragPort.direction) {
+      return;
+    }
+
+    event.preventDefault();
+
+    const key = dragPort.direction === "input" ? "inputs" : "outputs";
+    const ports = draft[key];
+    const fromIndex = ports.findIndex((port) => port.id === dragPort.portId);
+    const toIndex = ports.findIndex((port) => port.id === row.dataset.portId);
+
+    if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) {
+      return;
+    }
+
+    const [moved] = ports.splice(fromIndex, 1);
+    ports.splice(toIndex, 0, moved);
+    normalizePortPositions(ports);
+    rerender();
+  });
 }
 
 function renderEditPortList() {
@@ -3741,18 +3922,13 @@ function renderEditPortList() {
     ...editDraft.outputs.map((port) => ({ ...port, direction: "output" }))
   ];
 
-  editPortList.innerHTML = rows.map((port) => `
-    <div class="port-row">
-      <span>${port.direction === "input" ? "Input" : "Output"}</span>
-      <strong>${port.label}</strong>
-      <em>${port.signal}</em>
-      <button class="small-button danger" type="button" data-edit-remove-port="${port.direction}:${port.id}">Entfernen</button>
-    </div>
-  `).join("");
+  editPortList.innerHTML = renderPortRows(rows, editDraft.editable);
+  editPortAddRow.classList.toggle("is-hidden", !editDraft.editable);
+  editPortLockedNote.classList.toggle("is-hidden", editDraft.editable);
 }
 
 function addPortToEditDraft() {
-  if (!editDraft) {
+  if (!editDraft?.editable) {
     return;
   }
 
@@ -3760,8 +3936,8 @@ function addPortToEditDraft() {
   const signal = document.querySelector("#editPortSignal").value;
   const labelField = document.querySelector("#editPortLabel");
   const ports = direction === "input" ? editDraft.inputs : editDraft.outputs;
-  const portId = `${direction}-${Date.now()}`;
-  const label = labelField.value.trim() || `${signal} ${direction === "input" ? "In" : "Out"} ${ports.length + 1}`;
+  const portId = makePortId(direction);
+  const label = labelField.value.trim() || makePortLabel(ports, signal);
 
   ports.push({ id: portId, label, signal, top: 50 });
   labelField.value = "";
@@ -3770,16 +3946,33 @@ function addPortToEditDraft() {
   renderEditPortList();
 }
 
-function removePortFromEditDraft(direction, portId) {
-  if (!editDraft) {
-    return;
-  }
+function resetCustomGearDraft() {
+  customGearDraft = { inputs: [], outputs: [] };
+  renderCustomGearPortList();
+}
 
-  const key = direction === "input" ? "inputs" : "outputs";
-  editDraft[key] = editDraft[key].filter((port) => port.id !== portId);
-  normalizePortPositions(editDraft.inputs);
-  normalizePortPositions(editDraft.outputs);
-  renderEditPortList();
+function renderCustomGearPortList() {
+  const rows = [
+    ...customGearDraft.inputs.map((port) => ({ ...port, direction: "input" })),
+    ...customGearDraft.outputs.map((port) => ({ ...port, direction: "output" }))
+  ];
+
+  customGearPortList.innerHTML = renderPortRows(rows, true);
+}
+
+function addPortToCustomGearDraft() {
+  const direction = document.querySelector("#customGearPortDirection").value;
+  const signal = document.querySelector("#customGearPortSignal").value;
+  const labelField = document.querySelector("#customGearPortLabel");
+  const ports = direction === "input" ? customGearDraft.inputs : customGearDraft.outputs;
+  const portId = makePortId(direction);
+  const label = labelField.value.trim() || makePortLabel(ports, signal);
+
+  ports.push({ id: portId, label, signal, top: 50 });
+  labelField.value = "";
+  normalizePortPositions(customGearDraft.inputs);
+  normalizePortPositions(customGearDraft.outputs);
+  renderCustomGearPortList();
 }
 
 function saveEditGear() {
@@ -3966,6 +4159,7 @@ function openGearLibrary() {
   }
 
   if (!gearDialog.open) {
+    resetCustomGearDraft();
     gearDialog.showModal();
   }
 }
@@ -4024,35 +4218,34 @@ document.querySelector("#addCustomGear").addEventListener("click", () => {
   }
 
   const name = document.querySelector("#customGearName").value.trim() || "Custom Gear";
-  const signal = document.querySelector("#customGearSignal").value;
-  const inputCount = clamp(Number(document.querySelector("#customGearInputs").value), 0, 12);
-  const outputCount = clamp(Number(document.querySelector("#customGearOutputs").value), 0, 12);
+
+  if (!customGearDraft.inputs.length && !customGearDraft.outputs.length) {
+    return;
+  }
+
   const customTemplate = {
     type: "custom",
     title: name,
     kicker: "Custom",
     width: 280,
-    inputs: makeNumberedPorts("input", inputCount, signal, signal, 26, inputCount > 1 ? 56 / Math.max(inputCount - 1, 1) : 0),
-    outputs: makeNumberedPorts("output", outputCount, signal, signal, 26, outputCount > 1 ? 56 / Math.max(outputCount - 1, 1) : 0)
+    inputs: customGearDraft.inputs.map((port) => ({ ...port })),
+    outputs: customGearDraft.outputs.map((port) => ({ ...port }))
   };
 
   addGear(`custom-${state.nextId}`, customTemplate);
+  document.querySelector("#customGearName").value = "";
+  resetCustomGearDraft();
 });
+
+document.querySelector("#addCustomGearPort").addEventListener("click", addPortToCustomGearDraft);
+
+setupPortListInteractions(customGearPortList, () => customGearDraft, renderCustomGearPortList);
 
 document.querySelector("#addEditPort").addEventListener("click", addPortToEditDraft);
 
 document.querySelector("#saveEditGear").addEventListener("click", saveEditGear);
 
-editPortList.addEventListener("click", (event) => {
-  const button = event.target.closest("[data-edit-remove-port]");
-
-  if (!button) {
-    return;
-  }
-
-  const [direction, portId] = button.dataset.editRemovePort.split(":");
-  removePortFromEditDraft(direction, portId);
-});
+setupPortListInteractions(editPortList, () => editDraft, renderEditPortList);
 
 document.querySelector(".zoom-controls").addEventListener("click", (event) => {
   const button = event.target.closest("[data-zoom]");
