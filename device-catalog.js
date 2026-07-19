@@ -148,7 +148,9 @@ window.BroadcastDeviceCatalog = (() => {
       image: "assets/canon-crn300.webp",
       capabilities: ["video-source", "camera-source", "network-control"],
       width: 270,
-      inputs: [],
+      inputs: [
+        { id: "mic-in", label: "Mic In", signal: "Mic 3.5mm", top: 58 }
+      ],
       outputs: [
         { id: "hdmi-out", label: "HDMI Out", signal: "HDMI", top: 42 },
         { id: "sdi-out", label: "SDI Out", signal: "SDI", top: 58 },

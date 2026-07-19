@@ -2631,13 +2631,16 @@ function getWirelessChannelColor(channelPortId) {
 }
 
 function getWirelessReceiverMicOutMarkers(receiver, toNode, toPortId) {
-  // The receiver's single 3.5mm output only "arrives" at the mixer once the
-  // ATEM mic channel it's plugged into is actually switched on.
-  const micId = toPortId?.startsWith("mic-in-") ? `mic${toPortId.replace("mic-in-", "")}` : null;
-  const micIsOn = toNode?.type === "switcher" && micId && getSwitcherMicAudioMode(toNode, micId) === "on";
+  // Only an ATEM mic channel has an on/off toggle gating whether the audio
+  // "arrives" at the mix - other destinations (e.g. a camera's mic input)
+  // simply carry the signal whenever the wireless channel is connected.
+  if (toNode?.type === "switcher") {
+    const micId = toPortId?.startsWith("mic-in-") ? `mic${toPortId.replace("mic-in-", "")}` : null;
+    const micIsOn = micId && getSwitcherMicAudioMode(toNode, micId) === "on";
 
-  if (!micIsOn) {
-    return [];
+    if (!micIsOn) {
+      return [];
+    }
   }
 
   return ["wireless-in-1", "wireless-in-2"]
