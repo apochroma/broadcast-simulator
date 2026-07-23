@@ -6,7 +6,7 @@ const signalColors = {
   SDI: cssVar("--signal-sdi"),
   HDMI: cssVar("--signal-hdmi"),
   "USB-C": cssVar("--signal-usb-c"),
-  RJ45: cssVar("--signal-rj45"),
+  LAN: cssVar("--signal-lan"),
   "Mic 3.5mm": cssVar("--signal-audio"),
   "Headphone 3.5mm": cssVar("--signal-headphones"),
   XLR: cssVar("--signal-audio"),
@@ -141,7 +141,13 @@ const editGearName = document.querySelector("#editGearName");
 const editPortList = document.querySelector("#editPortList");
 const editPortAddRow = document.querySelector("#editPortAddRow");
 const editPortLockedNote = document.querySelector("#editPortLockedNote");
+const editPortDirectionField = document.querySelector("#editPortDirectionField");
+const editPortDirectionSelect = document.querySelector("#editPortDirection");
+const editPortSignalSelect = document.querySelector("#editPortSignal");
 const customGearPortList = document.querySelector("#customGearPortList");
+const customGearPortDirectionField = document.querySelector("#customGearPortDirectionField");
+const customGearPortDirectionSelect = document.querySelector("#customGearPortDirection");
+const customGearPortSignalSelect = document.querySelector("#customGearPortSignal");
 const mediaPoolDialog = document.querySelector("#mediaPoolDialog");
 const mediaPoolHeading = document.querySelector("#mediaPoolHeading");
 const mediaPoolGrid = document.querySelector("#mediaPoolGrid");
@@ -2308,9 +2314,9 @@ function getFeedFromPort(portRef, visited = new Set()) {
     return { type: "none", connected: false, source: null };
   }
 
-  visited.add(`${portRef.nodeId}:${portRef.portId}`);
-
   if (fromNode.type === "switcher") {
+    visited.add(`${portRef.nodeId}:${portRef.portId}`);
+
     if (portRef.portId === "multiview-out") {
       return getSwitcherMultiviewFeed(fromNode);
     }
@@ -2325,6 +2331,7 @@ function getFeedFromPort(portRef, visited = new Set()) {
   }
 
   if (fromNode.type === "monitor" && ["sdi-out", "hdmi-out"].includes(portRef.portId)) {
+    visited.add(`${portRef.nodeId}:${portRef.portId}`);
     return getMonitorFeedForOutput(fromNode, portRef.portId, visited);
   }
 
@@ -2579,6 +2586,16 @@ function resolveSourceFromPort(portRef, visited = new Set()) {
 
   if (node.type === "monitor" && ["sdi-out", "hdmi-out"].includes(portRef.portId)) {
     return getMonitorFeedForOutput(node, portRef.portId, visited).source;
+  }
+
+  if (node.type === "converter") {
+    // The BiDirectional converter cross-converts both directions at once:
+    // whatever feeds HDMI In comes back out SDI Out, and vice versa.
+    const crossInputPortId = portRef.portId === "sdi-out"
+      ? "hdmi-in"
+      : portRef.portId === "hdmi-out" ? "sdi-in" : null;
+
+    return crossInputPortId ? resolveNodeInputSource(node, crossInputPortId, visited) : null;
   }
 
   return null;
@@ -3059,12 +3076,12 @@ function getPtzControlledCamera(controller) {
   return reachableCameras[cameraNumber - 1] ?? null;
 }
 
-// PTZ control travels the RJ45/PoE cabling graph (hopping through any number of
+// PTZ control travels the LAN cabling graph (hopping through any number of
 // networkSwitch nodes, which relay between all of their ports) rather than the
 // ATEM switcher's video input wiring, since a SKAARHOJ controls whatever camera
 // it can actually reach over the network, regardless of where the video goes.
 function getLanReachableCameras(controller) {
-  const rj45Connections = state.connections.filter((connection) => connection.signal === "RJ45");
+  const lanConnections = state.connections.filter((connection) => connection.signal === "LAN");
   const visited = new Set([controller.id]);
   const queue = [controller.id];
   const cameras = [];
@@ -3073,7 +3090,7 @@ function getLanReachableCameras(controller) {
     const currentId = queue.shift();
     const neighborIds = new Set();
 
-    rj45Connections.forEach((connection) => {
+    lanConnections.forEach((connection) => {
       if (connection.from.nodeId === currentId) {
         neighborIds.add(connection.to.nodeId);
       }
@@ -3783,9 +3800,9 @@ function isValidConnection(from, to) {
     return false;
   }
 
-  if (from.signal === "RJ45") {
-    // Ethernet/PoE jacks are bidirectional, so any two RJ45 ports may be
-    // cabled together (e.g. switch-to-switch uplinks), unlike video signals.
+  if (from.signal === "LAN") {
+    // LAN jacks are bidirectional, so any two LAN ports may be cabled
+    // together (e.g. switch-to-switch uplinks), unlike video signals.
     return true;
   }
 
@@ -3874,6 +3891,7 @@ function openEditGear(nodeId) {
   editGearHeading.textContent = node.title;
   editGearName.value = node.title;
   renderEditPortList();
+  updatePortDirectionVisibility(editPortDirectionField, editPortDirectionSelect, editPortSignalSelect);
   editGearDialog.showModal();
 }
 
@@ -4029,13 +4047,25 @@ function renderEditPortList() {
   editPortLockedNote.classList.toggle("is-hidden", editDraft.editable);
 }
 
+// LAN jacks are bidirectional (see isValidConnection), so asking for a port's
+// direction is meaningless once "LAN" is chosen as the category - hide the
+// picker and settle on a fixed value instead of forcing a false choice.
+function updatePortDirectionVisibility(directionField, directionSelect, signalSelect) {
+  const isLan = signalSelect.value === "LAN";
+
+  directionField.classList.toggle("is-hidden", isLan);
+  if (isLan) {
+    directionSelect.value = "input";
+  }
+}
+
 function addPortToEditDraft() {
   if (!editDraft?.editable) {
     return;
   }
 
-  const direction = document.querySelector("#editPortDirection").value;
-  const signal = document.querySelector("#editPortSignal").value;
+  const direction = editPortDirectionSelect.value;
+  const signal = editPortSignalSelect.value;
   const labelField = document.querySelector("#editPortLabel");
   const ports = direction === "input" ? editDraft.inputs : editDraft.outputs;
   const portId = makePortId(direction);
@@ -4051,6 +4081,7 @@ function addPortToEditDraft() {
 function resetCustomGearDraft() {
   customGearDraft = { inputs: [], outputs: [] };
   renderCustomGearPortList();
+  updatePortDirectionVisibility(customGearPortDirectionField, customGearPortDirectionSelect, customGearPortSignalSelect);
 }
 
 function renderCustomGearPortList() {
@@ -4063,8 +4094,8 @@ function renderCustomGearPortList() {
 }
 
 function addPortToCustomGearDraft() {
-  const direction = document.querySelector("#customGearPortDirection").value;
-  const signal = document.querySelector("#customGearPortSignal").value;
+  const direction = customGearPortDirectionSelect.value;
+  const signal = customGearPortSignalSelect.value;
   const labelField = document.querySelector("#customGearPortLabel");
   const ports = direction === "input" ? customGearDraft.inputs : customGearDraft.outputs;
   const portId = makePortId(direction);
@@ -4348,6 +4379,14 @@ document.querySelector("#addCustomGear").addEventListener("click", () => {
 document.querySelector("#addCustomGearPort").addEventListener("click", addPortToCustomGearDraft);
 
 setupPortListInteractions(customGearPortList, () => customGearDraft, renderCustomGearPortList);
+
+customGearPortSignalSelect.addEventListener("change", () => {
+  updatePortDirectionVisibility(customGearPortDirectionField, customGearPortDirectionSelect, customGearPortSignalSelect);
+});
+
+editPortSignalSelect.addEventListener("change", () => {
+  updatePortDirectionVisibility(editPortDirectionField, editPortDirectionSelect, editPortSignalSelect);
+});
 
 document.querySelector("#addEditPort").addEventListener("click", addPortToEditDraft);
 

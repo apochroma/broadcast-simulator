@@ -156,7 +156,7 @@
         return `
           <div class="simple-device-face network-switch-face" style="min-height: ${node.portCount * node.portColumnPitch}px">PoE Switch<br>${node.portCount}-Port</div>
           <div class="node-meta">
-            <span>${node.portCount}x RJ45 / PoE</span>
+            <span>${node.portCount}x LAN</span>
             <span>Alle Buchsen frei koppelbar</span>
           </div>
         `;
@@ -168,6 +168,10 @@
 
       if (node.type === "wirelessTransmitter") {
         return this.renderRodeTransmitter(node);
+      }
+
+      if (node.type === "converter") {
+        return this.renderMicroConverter(node);
       }
 
       return `
@@ -197,7 +201,7 @@
           <div class="ptz-display">
             <span>${isFly ? "PTZ Fly" : "PTZ Pro"}</span>
             <strong>CAM ${node.selectedCamera ?? 1}</strong>
-            <em>PoE / LAN</em>
+            <em>LAN</em>
           </div>
           <div class="ptz-joystick"
             data-action="move-ptz-joystick"
@@ -300,6 +304,24 @@
       `;
     }
 
+    renderMicroConverter(node) {
+      return `
+        <div class="bmd-panel">
+          <div class="bmd-brand">
+            <span>Blackmagicdesign</span>
+            <span class="bmd-logo-rings" aria-hidden="true"><i></i><i></i><i></i></span>
+          </div>
+          <div class="bmd-model">
+            <strong>Micro Converter</strong>
+            <span>BiDirectional<br>SDI/HDMI 12G</span>
+          </div>
+        </div>
+        <div class="node-meta">
+          <span>${node.inputs.length} In / ${node.outputs.length} Out</span>
+        </div>
+      `;
+    }
+
     renderSourcePreview(node) {
       const mode = this.callbacks.normalizeSourceViewMode(node);
 
@@ -361,9 +383,14 @@
           && this.state.selectedSocket.nodeId === node.id
           && this.state.selectedSocket.portId === port.id;
         const position = port.topPx !== undefined ? `top: ${port.topPx}px;` : `top: ${port.top}%;`;
+        // A port's card edge is usually implied by its direction (input=left,
+        // output=right), but some devices group jacks by connector type
+        // instead - `port.edge` lets a port opt out of that default without
+        // touching its actual input/output connection semantics.
+        const edge = port.edge ?? (direction === "input" ? "left" : "right");
 
         return `
-          <button class="socket is-${direction} ${selected ? "is-selected" : ""}"
+          <button class="socket is-${direction} is-edge-${edge} ${selected ? "is-selected" : ""}"
             type="button"
             data-action="socket"
             data-node-id="${node.id}"

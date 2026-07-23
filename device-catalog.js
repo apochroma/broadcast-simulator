@@ -29,7 +29,7 @@ window.BroadcastDeviceCatalog = (() => {
       outputs: [
         { id: "hdmi-out", label: "HDMI Out", signal: "HDMI", top: 44 },
         { id: "usb-c-out", label: "USB-C Out", signal: "USB-C", top: 58 },
-        { id: "rj45", label: "RJ45", signal: "RJ45", top: 72 },
+        { id: "rj45", label: "LAN", signal: "LAN", top: 72 },
         { id: "line-out", label: "Line Out", signal: "Mic 3.5mm", top: 86 }
       ]
     },
@@ -41,6 +41,21 @@ window.BroadcastDeviceCatalog = (() => {
       width: 280,
       inputs: [{ id: "input-1", label: "HDMI In", signal: "HDMI", top: 50 }],
       outputs: makeNumberedPorts("output", 5, "HDMI", "HDMI", 24, 13)
+    },
+    microConverterBidiSdiHdmi12g: {
+      type: "converter",
+      title: "Micro Converter",
+      kicker: "Konverter",
+      capabilities: ["signal-cross-conversion"],
+      width: 260,
+      inputs: [
+        { id: "sdi-in", label: "SDI In", signal: "SDI", top: 62, edge: "right" },
+        { id: "hdmi-in", label: "HDMI In", signal: "HDMI", top: 62, edge: "left" }
+      ],
+      outputs: [
+        { id: "sdi-out", label: "SDI Out", signal: "SDI", top: 38, edge: "right" },
+        { id: "hdmi-out", label: "HDMI Out", signal: "HDMI", top: 38, edge: "left" }
+      ]
     },
     monitor: {
       type: "monitor",
@@ -90,24 +105,25 @@ window.BroadcastDeviceCatalog = (() => {
   };
 
   const gearEntries = [
-    ["canonCrn100", "Canon", "Canon CR-N100", "HDMI Out, SDI Out, RJ45"],
-    ["canonCrn300", "Canon", "Canon CR-N300", "HDMI Out, SDI Out, RJ45"],
-    ["canonCrn500", "Canon", "Canon CR-N500", "HDMI Out, SDI Out, RJ45"],
-    ["canonCrn700", "Canon", "Canon CR-N700", "HDMI Out, SDI Out, RJ45"],
+    ["canonCrn100", "Canon", "Canon CR-N100", "HDMI Out, SDI Out, LAN"],
+    ["canonCrn300", "Canon", "Canon CR-N300", "HDMI Out, SDI Out, LAN"],
+    ["canonCrn500", "Canon", "Canon CR-N500", "HDMI Out, SDI Out, LAN"],
+    ["canonCrn700", "Canon", "Canon CR-N700", "HDMI Out, SDI Out, LAN"],
     ["atemMiniPro", "Blackmagic ATEM Mini", "ATEM Mini Pro", "4 HDMI Inputs, HDMI Out, USB-C, 2x Mic"],
     ["atemMiniProIso", "Blackmagic ATEM Mini", "ATEM Mini Pro ISO", "4 HDMI Inputs, HDMI Out, USB-C, 2x Mic"],
     ["atemMiniExtreme", "Blackmagic ATEM Mini", "ATEM Mini Extreme", "8 HDMI Inputs, 2x HDMI Out, 2x USB-C, Phones"],
     ["atemMiniExtremeIso", "Blackmagic ATEM Mini", "ATEM Mini Extreme ISO", "8 HDMI Inputs, 2x HDMI Out, 2x USB-C, Phones"],
     ["atemSdiProIso", "Blackmagic ATEM SDI", "ATEM SDI Pro ISO", "4 SDI Inputs, SDI Out, USB-C, 2x Mic"],
     ["atemSdiExtremeIso", "Blackmagic ATEM SDI", "ATEM SDI Extreme ISO", "8 SDI Inputs, 2x SDI Out, 2x USB-C, Phones"],
-    ["computer", "Playback", "Computer / Playback", "HDMI, USB-C, RJ45 und 3.5mm Line-Out mit Datei-Preview"],
+    ["computer", "Playback", "Computer / Playback", "HDMI, USB-C, LAN und 3.5mm Line-Out mit Datei-Preview"],
     ["hdmiSplitter", "Distribution", "HDMI Splitter 1x5", "1 HDMI Input, 5 HDMI Outputs"],
+    ["microConverterBidiSdiHdmi12g", "Blackmagic Micro Converter", "BiDirectional SDI/HDMI 12G", "SDI In/Out, HDMI In/Out, wandelt beide Richtungen gleichzeitig"],
     ["monitor", "Monitoring", "Program Monitor", "SDI/HDMI Input und Loop-Out"],
     ["skaarhojPtzPro", "SKAARHOJ PTZ", "PTZ Pro", "1G Ethernet mit PoE, Joystick, Kamera-Auswahl"],
     ["skaarhojPtzFly", "SKAARHOJ PTZ", "PTZ Fly", "1G Ethernet mit PoE, kompakter Joystick-Controller"],
-    ["networkSwitch8", "Netzwerk", "PoE Netzwerk-Switch 8-Port", "8x RJ45 / PoE"],
-    ["networkSwitch16", "Netzwerk", "PoE Netzwerk-Switch 16-Port", "16x RJ45 / PoE"],
-    ["networkSwitch24", "Netzwerk", "PoE Netzwerk-Switch 24-Port", "24x RJ45 / PoE"],
+    ["networkSwitch8", "Netzwerk", "PoE Netzwerk-Switch 8-Port", "8x LAN"],
+    ["networkSwitch16", "Netzwerk", "PoE Netzwerk-Switch 16-Port", "16x LAN"],
+    ["networkSwitch24", "Netzwerk", "PoE Netzwerk-Switch 24-Port", "24x LAN"],
     ["rodeWirelessGo2Set", "RODE", "Wireless GO II (Set)", "1x Receiver + 2x Transmitter, 3.5mm Mic Out, koppelt drahtlos"]
   ];
 
@@ -154,7 +170,7 @@ window.BroadcastDeviceCatalog = (() => {
       outputs: [
         { id: "hdmi-out", label: "HDMI Out", signal: "HDMI", top: 42 },
         { id: "sdi-out", label: "SDI Out", signal: "SDI", top: 58 },
-        { id: "rj45", label: "RJ45", signal: "RJ45", top: 74 }
+        { id: "rj45", label: "LAN", signal: "LAN", top: 74 }
       ]
     };
   }
@@ -243,7 +259,7 @@ window.BroadcastDeviceCatalog = (() => {
       selectedCamera: 1,
       inputs: [],
       outputs: [
-        { id: "poe", label: "PoE / LAN", signal: "RJ45", top: 50 }
+        { id: "poe", label: "LAN", signal: "LAN", top: 50 }
       ]
     };
   }
@@ -257,7 +273,7 @@ window.BroadcastDeviceCatalog = (() => {
       width: 300,
       portCount,
       portColumnPitch: SWITCH_PORT_PITCH,
-      inputs: makeLeftEdgePorts("port", portCount, "RJ45"),
+      inputs: makeLeftEdgePorts("port", portCount, "LAN"),
       outputs: []
     };
   }

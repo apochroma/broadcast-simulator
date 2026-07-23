@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Broadcast Signalfluss Simulation</title>
-    <link rel="stylesheet" href="styles.css?v=rode-wireless-4">
+    <link rel="stylesheet" href="styles.css?v=micro-converter-7">
   </head>
   <body>
     <main class="app-shell">
@@ -115,7 +115,7 @@
           </label>
           <div class="port-list" id="customGearPortList"></div>
           <div class="custom-grid">
-            <label>
+            <label id="customGearPortDirectionField">
               Richtung
               <select id="customGearPortDirection">
                 <option value="input">Input</option>
@@ -128,7 +128,7 @@
                 <option value="SDI">SDI</option>
                 <option value="HDMI">HDMI</option>
                 <option value="USB-C">USB-C</option>
-                <option value="RJ45">RJ45</option>
+                <option value="LAN">LAN</option>
                 <option value="Mic 3.5mm">Mic 3.5mm</option>
                 <option value="Headphone 3.5mm">Headphone 3.5mm</option>
                 <option value="XLR">XLR</option>
@@ -174,7 +174,7 @@
           <div class="port-list" id="editPortList"></div>
           <p class="edit-note is-hidden" id="editPortLockedNote">Vordefinierte Devices sind mit festen Buchsen gebaut und können hier nicht verändert werden.</p>
           <div class="custom-grid" id="editPortAddRow">
-            <label>
+            <label id="editPortDirectionField">
               Richtung
               <select id="editPortDirection">
                 <option value="input">Input</option>
@@ -187,7 +187,7 @@
                 <option value="SDI">SDI</option>
                 <option value="HDMI">HDMI</option>
                 <option value="USB-C">USB-C</option>
-                <option value="RJ45">RJ45</option>
+                <option value="LAN">LAN</option>
                 <option value="Mic 3.5mm">Mic 3.5mm</option>
                 <option value="Headphone 3.5mm">Headphone 3.5mm</option>
                 <option value="XLR">XLR</option>
@@ -233,12 +233,12 @@
       </form>
     </dialog>
 
-    <script src="device-catalog.js?v=canon-mic-in-1"></script>
-    <script src="connections.js?v=rode-wireless-4"></script>
+    <script src="device-catalog.js?v=micro-converter-7"></script>
+    <script src="connections.js?v=lan-rename-1"></script>
     <script src="atem.js?v=ftb-chain-1"></script>
     <script src="atem-audio.js?v=atem-audio-1"></script>
     <script src="atem-media.js?v=atem-media-1"></script>
-    <script src="device-renderers.js?v=rode-wireless-4"></script>
-    <script src="app.js?v=rode-wireless-8"></script>
+    <script src="device-renderers.js?v=micro-converter-7"></script>
+    <script src="app.js?v=converter-passthrough-2"></script>
   </body>
 </html>
