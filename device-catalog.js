@@ -1,6 +1,6 @@
 window.BroadcastDeviceCatalog = (() => {
   const SWITCH_PORT_PITCH = 30;
-  const SWITCH_PORT_HEADER_OFFSET = 134;
+  const SWITCH_PORT_HEADER_OFFSET = 83;
 
   const gearLibrary = {
     canonCrn100: makeCanonCameraTemplate("Canon CR-N100"),

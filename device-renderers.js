@@ -155,10 +155,6 @@
       if (node.type === "networkSwitch") {
         return `
           <div class="simple-device-face network-switch-face" style="min-height: ${node.portCount * node.portColumnPitch}px">PoE Switch<br>${node.portCount}-Port</div>
-          <div class="node-meta">
-            <span>${node.portCount}x LAN</span>
-            <span>Alle Buchsen frei koppelbar</span>
-          </div>
         `;
       }
 

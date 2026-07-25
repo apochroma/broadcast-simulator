@@ -5913,7 +5913,7 @@ document.addEventListener("keydown", (event) => {
     return;
   }
 
-  if ((event.key === "Delete" || event.key === "Backspace") && !event.metaKey && !event.altKey && !event.ctrlKey && !event.shiftKey) {
+  if ((event.key === "Delete" || event.key === "Backspace" || event.key.toLowerCase() === "x") && !event.metaKey && !event.altKey && !event.ctrlKey && !event.shiftKey) {
     const selectedNodeIds = getSelectedNodeIds();
 
     if (!state.readOnly && selectedNodeIds.length) {
