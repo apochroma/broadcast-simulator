@@ -47,7 +47,7 @@
       return `
         <article class="${classes}"
           data-node-id="${node.id}"
-          style="width: ${node.width}px; transform: translate(${node.position.x}px, ${node.position.y}px); --transition-duration: ${this.callbacks.getSwitcherTransitionDurationMs(node)}ms">
+          style="width: ${node.width}px; transform: translate(${node.position.x}px, ${node.position.y}px) rotate(${node.rotation ?? 0}deg); --transition-duration: ${this.callbacks.getSwitcherTransitionDurationMs(node)}ms">
           ${this.renderSockets(node, "input")}
           ${this.renderSockets(node, "output")}
           ${this.renderPortActivityLeds(node)}

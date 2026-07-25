@@ -498,7 +498,8 @@ body.is-read-only #openGearLibrary {
 .small-button,
 .switcher-action,
 .source-button,
-.zoom-button {
+.zoom-button,
+.toolbar-icon-button {
   border-radius: 6px;
   color: var(--text);
   background: var(--button);
@@ -519,7 +520,8 @@ body.is-read-only #openGearLibrary {
 .small-button:hover,
 .switcher-action:hover,
 .source-button:hover,
-.zoom-button:hover {
+.zoom-button:hover,
+.toolbar-icon-button:not(:disabled):hover {
   transform: translateY(-1px);
   background: var(--button-hover);
 }
@@ -887,6 +889,39 @@ body.is-read-only #openGearLibrary {
   color: var(--muted);
   font-size: 0.8rem;
   font-weight: 700;
+}
+
+.align-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.align-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.align-group:first-child {
+  border-left: none;
+  padding-left: 0;
+}
+
+.toolbar-icon-button {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  padding: 0;
+}
+
+.toolbar-icon-button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 .zoom-controls {
@@ -2987,6 +3022,11 @@ body.is-read-only #openGearLibrary {
 
   .zoom-controls {
     justify-content: space-between;
+  }
+
+  .align-controls {
+    flex-wrap: wrap;
+    justify-content: center;
   }
 
   .switcher {

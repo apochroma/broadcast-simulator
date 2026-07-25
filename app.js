@@ -126,6 +126,7 @@ const workspace = document.querySelector("#workspace");
 const cableLayer = document.querySelector("#cableLayer");
 const deviceLayer = document.querySelector("#deviceLayer");
 const selectionMarquee = document.querySelector("#selectionMarquee");
+const alignControls = document.querySelector(".align-controls");
 const audioMeterPopover = document.querySelector("#audioMeterPopover");
 const emptyState = document.querySelector("#emptyState");
 const programStatus = document.querySelector("#programStatus");
@@ -198,6 +199,7 @@ function addGear(type, customTemplate) {
     title: template.type === "camera" ? `${template.title} ${countOfType}` : template.title,
     shortName: template.type === "camera" ? `CAM ${countOfType}` : getShortName(template.title),
     position,
+    rotation: 0,
     viewMode: getDefaultSourceViewMode(template.type),
     media: template.type === "computer" ? createPlaceholderMedia("Computer") : null,
     previewInput: template.type === "switcher" ? 1 : null,
@@ -310,6 +312,7 @@ function render() {
   atemMediaController.renderDialog();
   renderGearList();
   renderZoom();
+  updateAlignControlsState();
   requestAnimationFrame(() => {
     renderLines();
     renderPtzProjectionCanvases();
@@ -4257,6 +4260,7 @@ function loadSetup(setup, readOnly = state.readOnly) {
   state.activeSwitcherId = setup.activeSwitcherId ?? null;
   state.nodes = (setup.nodes ?? []).map((node) => ({
     ...node,
+    rotation: node.rotation ?? 0,
     inputs: (node.inputs ?? []).map((port) => ({ ...port })),
     outputs: (node.outputs ?? []).map((port) => ({ ...port }))
   }));
@@ -4451,6 +4455,29 @@ document.querySelector(".zoom-controls").addEventListener("click", (event) => {
 
   if (button.dataset.zoom === "reset") {
     setZoom(1);
+  }
+});
+
+alignControls.addEventListener("click", (event) => {
+  const alignButton = event.target.closest("[data-align]");
+
+  if (alignButton && !alignButton.disabled) {
+    const mode = alignButton.dataset.align;
+
+    if (mode === "distribute-h") {
+      distributeSelectedNodes("horizontal");
+    } else if (mode === "distribute-v") {
+      distributeSelectedNodes("vertical");
+    } else {
+      alignSelectedNodes(mode);
+    }
+    return;
+  }
+
+  const rotateButton = event.target.closest("[data-rotate]");
+
+  if (rotateButton && !rotateButton.disabled) {
+    rotateSelectedNodes(rotateButton.dataset.rotate);
   }
 });
 
@@ -5218,6 +5245,120 @@ function getRectFromPoints(start, end) {
     width: right - left,
     height: bottom - top
   };
+}
+
+function getNodeBounds(node) {
+  const element = deviceLayer.querySelector(`article.node[data-node-id="${node.id}"]`);
+  const width = (element?.getBoundingClientRect().width ?? node.width) / state.zoom;
+  const height = (element?.getBoundingClientRect().height ?? 220) / state.zoom;
+
+  return { node, width, height };
+}
+
+function alignSelectedNodes(mode) {
+  if (state.readOnly) {
+    return;
+  }
+
+  const nodes = getSelectedNodeIds().map(getNode).filter(Boolean);
+
+  if (nodes.length < 2) {
+    return;
+  }
+
+  recordUndoSnapshot();
+  const bounds = nodes.map(getNodeBounds);
+
+  if (mode === "left") {
+    const target = Math.min(...bounds.map((b) => b.node.position.x));
+    bounds.forEach((b) => { b.node.position.x = target; });
+  } else if (mode === "center-h") {
+    const min = Math.min(...bounds.map((b) => b.node.position.x));
+    const max = Math.max(...bounds.map((b) => b.node.position.x + b.width));
+    const center = (min + max) / 2;
+    bounds.forEach((b) => { b.node.position.x = center - b.width / 2; });
+  } else if (mode === "right") {
+    const target = Math.max(...bounds.map((b) => b.node.position.x + b.width));
+    bounds.forEach((b) => { b.node.position.x = target - b.width; });
+  } else if (mode === "top") {
+    const target = Math.min(...bounds.map((b) => b.node.position.y));
+    bounds.forEach((b) => { b.node.position.y = target; });
+  } else if (mode === "middle-v") {
+    const min = Math.min(...bounds.map((b) => b.node.position.y));
+    const max = Math.max(...bounds.map((b) => b.node.position.y + b.height));
+    const center = (min + max) / 2;
+    bounds.forEach((b) => { b.node.position.y = center - b.height / 2; });
+  } else if (mode === "bottom") {
+    const target = Math.max(...bounds.map((b) => b.node.position.y + b.height));
+    bounds.forEach((b) => { b.node.position.y = target - b.height; });
+  }
+
+  render();
+}
+
+function distributeSelectedNodes(axis) {
+  if (state.readOnly) {
+    return;
+  }
+
+  const nodes = getSelectedNodeIds().map(getNode).filter(Boolean);
+
+  if (nodes.length < 3) {
+    return;
+  }
+
+  recordUndoSnapshot();
+  const bounds = nodes.map(getNodeBounds);
+  const sizeKey = axis === "horizontal" ? "width" : "height";
+  const positionKey = axis === "horizontal" ? "x" : "y";
+  const sorted = [...bounds].sort((a, b) => a.node.position[positionKey] - b.node.position[positionKey]);
+  const first = sorted[0];
+  const last = sorted[sorted.length - 1];
+  const span = (last.node.position[positionKey] + last[sizeKey]) - first.node.position[positionKey];
+  const totalSize = sorted.reduce((sum, b) => sum + b[sizeKey], 0);
+  const gap = (span - totalSize) / (sorted.length - 1);
+
+  let cursor = first.node.position[positionKey] + first[sizeKey];
+  for (let i = 1; i < sorted.length - 1; i += 1) {
+    cursor += gap;
+    sorted[i].node.position[positionKey] = cursor;
+    cursor += sorted[i][sizeKey];
+  }
+
+  render();
+}
+
+function rotateSelectedNodes(direction) {
+  if (state.readOnly) {
+    return;
+  }
+
+  const nodes = getSelectedNodeIds().map(getNode).filter(Boolean);
+
+  if (!nodes.length) {
+    return;
+  }
+
+  recordUndoSnapshot();
+  const delta = direction === "cw" ? 90 : -90;
+  nodes.forEach((node) => {
+    node.rotation = ((node.rotation ?? 0) + delta + 360) % 360;
+  });
+
+  render();
+}
+
+function updateAlignControlsState() {
+  const selectedCount = getSelectedNodeIds().length;
+
+  alignControls.querySelectorAll("[data-align]").forEach((button) => {
+    const needsThree = button.dataset.align.startsWith("distribute");
+    button.disabled = state.readOnly || selectedCount < (needsThree ? 3 : 2);
+  });
+
+  alignControls.querySelectorAll("[data-rotate]").forEach((button) => {
+    button.disabled = state.readOnly || selectedCount < 1;
+  });
 }
 
 function getNodesInRect(selectionRect) {
