@@ -3038,3 +3038,63 @@ body.is-read-only #openGearLibrary {
     grid-template-columns: 1fr;
   }
 }
+
+@media print {
+  /* Chrome's print/PDF pipeline doesn't render blur — box-shadow, text-shadow
+     and outline (with its offset) all come out as solid, unblurred shapes
+     instead (the gray halos around cards, the "selected" look behind text,
+     the red block under the recording dot, the overfilled ATEM button ring).
+     None of that is worth having in a printed plan, so it's all dropped. */
+  body.is-print-export * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    box-shadow: none !important;
+    text-shadow: none !important;
+    outline: none !important;
+  }
+
+  body.is-print-export .toolbar,
+  body.is-print-export .empty-state,
+  body.is-print-export .selection-marquee,
+  body.is-print-export .audio-meter-popover,
+  body.is-print-export .media-pool-cursor,
+  body.is-print-export dialog,
+  body.is-print-export .node-actions {
+    display: none !important;
+  }
+
+  body.is-print-export {
+    overflow: visible;
+    min-height: 0;
+    background: transparent;
+  }
+
+  body.is-print-export .app-shell {
+    display: block;
+    width: auto;
+    height: auto;
+    padding: 0;
+  }
+
+  body.is-print-export .workspace-viewport {
+    overflow: hidden;
+    border: none;
+    box-shadow: none;
+    background: transparent;
+    width: var(--print-width);
+    height: var(--print-height);
+  }
+
+  body.is-print-export .workspace-scale-shell {
+    overflow: hidden;
+    width: var(--print-width) !important;
+    height: var(--print-height) !important;
+  }
+
+  body.is-print-export .workspace {
+    width: 12000px;
+    height: 8000px;
+    background: transparent;
+    transform: translate(var(--print-offset-x), var(--print-offset-y)) !important;
+  }
+}

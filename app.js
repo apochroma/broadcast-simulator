@@ -4300,6 +4300,234 @@ function exportSetup() {
   URL.revokeObjectURL(url);
 }
 
+function getWorkspaceContentBounds(padding = 60) {
+  if (!state.nodes.length) {
+    return { x: 0, y: 0, width: 800, height: 600 };
+  }
+
+  const edges = state.nodes.map((node) => {
+    const { width, height } = getNodeBounds(node);
+    return {
+      left: node.position.x,
+      top: node.position.y,
+      right: node.position.x + width,
+      bottom: node.position.y + height
+    };
+  });
+
+  const left = Math.max(0, Math.min(...edges.map((edge) => edge.left)) - padding);
+  const top = Math.max(0, Math.min(...edges.map((edge) => edge.top)) - padding);
+  const right = Math.max(...edges.map((edge) => edge.right)) + padding;
+  const bottom = Math.max(...edges.map((edge) => edge.bottom)) + padding;
+
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+function printWorkspace() {
+  const bounds = getWorkspaceContentBounds();
+  const root = document.documentElement.style;
+
+  root.setProperty("--print-offset-x", `${-bounds.x}px`);
+  root.setProperty("--print-offset-y", `${-bounds.y}px`);
+  root.setProperty("--print-width", `${bounds.width}px`);
+  root.setProperty("--print-height", `${bounds.height}px`);
+
+  // @page size can't be driven by a CSS custom property, so the page is sized
+  // to the content in a freshly injected stylesheet instead — that's what
+  // forces the whole plan onto a single page rather than being tiled across
+  // several pages at a fixed paper size.
+  const pixelsPerInch = 96;
+  const pageStyle = document.createElement("style");
+  pageStyle.textContent = `@page { size: ${bounds.width / pixelsPerInch}in ${bounds.height / pixelsPerInch}in; margin: 0; }`;
+  document.head.appendChild(pageStyle);
+  document.body.classList.add("is-print-export");
+
+  const cleanup = () => {
+    document.body.classList.remove("is-print-export");
+    pageStyle.remove();
+    window.removeEventListener("afterprint", cleanup);
+  };
+
+  window.addEventListener("afterprint", cleanup);
+  window.print();
+}
+
+// Canvas and video elements lose their rendered pixels on cloneNode(), so the
+// live element (still attached to the page) is snapshotted to a data-URL
+// image before the clone is serialized into the export SVG.
+function snapshotCanvasToImage(canvasEl) {
+  const img = document.createElement("img");
+  img.className = canvasEl.className;
+  img.setAttribute("style", canvasEl.getAttribute("style") ?? "");
+  img.width = canvasEl.width;
+  img.height = canvasEl.height;
+  img.src = canvasEl.toDataURL("image/png");
+  return img;
+}
+
+function snapshotVideoToImage(videoEl) {
+  const canvas = document.createElement("canvas");
+  canvas.width = videoEl.videoWidth || videoEl.clientWidth || 1;
+  canvas.height = videoEl.videoHeight || videoEl.clientHeight || 1;
+
+  const ctx = canvas.getContext("2d");
+  try {
+    ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+  } catch {
+    // Frame not yet available (e.g. video still loading); export a blank frame instead of failing.
+  }
+
+  const img = document.createElement("img");
+  img.className = videoEl.className;
+  img.setAttribute("style", videoEl.getAttribute("style") ?? "");
+  img.src = canvas.toDataURL("image/png");
+  return img;
+}
+
+function readBlobAsDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+// Chrome taints a canvas drawn from an SVG image the moment that SVG contains
+// ANY external image reference — even a same-origin one that loads fine. The
+// only way to keep the export canvas readable (toDataURL/toBlob) is to inline
+// every raster image as a self-contained base64 data URI before serializing,
+// so the browser never has to fetch anything while rendering the foreignObject.
+async function inlineClonedImages(root) {
+  const imgs = Array.from(root.querySelectorAll("img"));
+
+  await Promise.all(imgs.map(async (imgEl) => {
+    const src = imgEl.getAttribute("src");
+
+    if (!src || src.startsWith("data:")) {
+      return;
+    }
+
+    try {
+      const blob = await fetch(src).then((response) => response.blob());
+      imgEl.setAttribute("src", await readBlobAsDataUrl(blob));
+    } catch {
+      // Leave the (now unreachable) original src rather than failing the whole export.
+    }
+  }));
+}
+
+async function buildExportClone(bounds) {
+  const cableClone = cableLayer.cloneNode(true);
+  const deviceClone = deviceLayer.cloneNode(true);
+
+  [[cableLayer, cableClone], [deviceLayer, deviceClone]].forEach(([originalRoot, clonedRoot]) => {
+    const originalCanvases = originalRoot.querySelectorAll("canvas");
+    clonedRoot.querySelectorAll("canvas").forEach((canvasClone, index) => {
+      canvasClone.replaceWith(snapshotCanvasToImage(originalCanvases[index]));
+    });
+
+    const originalVideos = originalRoot.querySelectorAll("video");
+    clonedRoot.querySelectorAll("video").forEach((videoClone, index) => {
+      videoClone.replaceWith(snapshotVideoToImage(originalVideos[index]));
+    });
+
+    // Resolve every <img src> to an absolute URL so it can be fetched for inlining below.
+    clonedRoot.querySelectorAll("img").forEach((imgEl) => {
+      imgEl.setAttribute("src", imgEl.src);
+    });
+  });
+
+  deviceClone.querySelectorAll(".node-actions").forEach((el) => el.remove());
+  deviceClone.querySelectorAll(".node.is-selected").forEach((el) => el.classList.remove("is-selected"));
+
+  const inner = document.createElement("div");
+  inner.setAttribute("style", `position:absolute; left:${-bounds.x}px; top:${-bounds.y}px; width:12000px; height:8000px;`);
+  inner.appendChild(cableClone);
+  inner.appendChild(deviceClone);
+
+  // styles.css only declares font-family/color on the `body` selector; this
+  // clone has no <body> for that rule to match, so both are restated here
+  // directly to stop every element from falling back to the browser's
+  // default (serif) font.
+  const wrapper = document.createElement("div");
+  wrapper.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
+  wrapper.setAttribute("style", `position:relative; width:${bounds.width}px; height:${bounds.height}px; overflow:hidden; background:transparent; font-family:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color:${cssVar("--text")};`);
+  wrapper.appendChild(inner);
+
+  await inlineClonedImages(wrapper);
+
+  return wrapper;
+}
+
+async function exportWorkspaceAsPng() {
+  if (!state.nodes.length) {
+    window.alert("Es sind noch keine Geräte im Plan.");
+    return;
+  }
+
+  const exportButton = document.querySelector("#exportPng");
+  exportButton.disabled = true;
+
+  try {
+    const bounds = getWorkspaceContentBounds();
+    const cssText = await fetch("styles.css").then((response) => response.text());
+    const wrapper = await buildExportClone(bounds);
+
+    const styleEl = document.createElement("style");
+    styleEl.textContent = cssText;
+
+    const svgNS = "http://www.w3.org/2000/svg";
+    const foreignObject = document.createElementNS(svgNS, "foreignObject");
+    foreignObject.setAttribute("width", "100%");
+    foreignObject.setAttribute("height", "100%");
+    foreignObject.appendChild(styleEl);
+    foreignObject.appendChild(wrapper);
+
+    const svg = document.createElementNS(svgNS, "svg");
+    svg.setAttribute("xmlns", svgNS);
+    svg.setAttribute("width", bounds.width);
+    svg.setAttribute("height", bounds.height);
+    svg.appendChild(foreignObject);
+
+    // A blob: URL here would mark the canvas as tainted the moment it's drawn
+    // (a Chrome quirk specific to SVG-as-image loaded from a blob: URL), even
+    // though every resource inside is already same-origin/inlined. A data:
+    // URI does not trigger that check, so it's used instead.
+    const svgString = new XMLSerializer().serializeToString(svg);
+    const svgUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgString)}`;
+
+    const scale = 2;
+    const image = new Image();
+
+    await new Promise((resolve, reject) => {
+      image.onload = resolve;
+      image.onerror = () => reject(new Error("SVG konnte nicht gerendert werden."));
+      image.src = svgUrl;
+    });
+
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bounds.width * scale);
+    canvas.height = Math.round(bounds.height * scale);
+
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+    const link = document.createElement("a");
+
+    link.href = URL.createObjectURL(blob);
+    link.download = `broadcast-setup-${new Date().toISOString().slice(0, 10)}.png`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  } catch (error) {
+    console.error(error);
+    window.alert("PNG-Export ist fehlgeschlagen. Bitte erneut versuchen.");
+  } finally {
+    exportButton.disabled = false;
+  }
+}
+
 function importSetup(file) {
   const reader = new FileReader();
 
@@ -4372,6 +4600,10 @@ gearSearch.addEventListener("input", (event) => {
 });
 
 document.querySelector("#exportSetup").addEventListener("click", exportSetup);
+
+document.querySelector("#exportPdf").addEventListener("click", printWorkspace);
+
+document.querySelector("#exportPng").addEventListener("click", exportWorkspaceAsPng);
 
 document.querySelector("#importSetup").addEventListener("click", () => {
   if (!state.readOnly) {
