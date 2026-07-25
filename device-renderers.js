@@ -224,9 +224,18 @@
           </div>
           ${presetButtons.length ? `
             <div class="ptz-preset-grid">
-              ${presetButtons.map((number) => `
-                <button class="ptz-small-key" type="button">${number}</button>
-              `).join("")}
+              ${presetButtons.map((number) => {
+                const camera = this.callbacks.getPtzControlledCamera(node);
+                const hasPreset = Boolean(camera?.presets?.[number]);
+                return `
+                  <button class="ptz-small-key ${hasPreset ? "has-preset" : ""}"
+                    type="button"
+                    data-action="ptz-preset"
+                    data-node-id="${node.id}"
+                    data-preset="${number}"
+                    title="Kurz: Preset abrufen · Lang halten (1s): Preset speichern">${number}</button>
+                `;
+              }).join("")}
             </div>
           ` : ""}
           <div class="ptz-camera-row">

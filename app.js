@@ -88,6 +88,7 @@ const AUDIO_METER_HIDE_MS = 1800;
 const AUDIO_METER_SWITCH_DELAY_MS = 1200;
 const GAIN_HOLD_DELAY_MS = 360;
 const GAIN_HOLD_INTERVAL_MS = 70;
+const PTZ_PRESET_LONG_PRESS_MS = 1000;
 const CABLE_SNAP_DISTANCE_PX = 34;
 const UNDO_HISTORY_LIMIT = 80;
 const MEDIA_POOL_SLOT_COUNT = 20;
@@ -174,6 +175,9 @@ let activeGainDrag = null;
 let activeChannelFaderDrag = null;
 let activePtzJoystickDrag = null;
 let ptzAnimationFrame = null;
+let ptzPresetPressTimer = null;
+let ptzPresetPressContext = null;
+const ptzPresetRecallAnimations = new Map();
 let connectionController = null;
 let atemController = null;
 let atemAudioController = null;
@@ -2860,6 +2864,7 @@ deviceRenderer = new BroadcastDeviceRenderers.DeviceRenderer({
     ensureSwitcherMediaPools,
     getActiveSwitcher,
     getMonitorLabel,
+    getPtzControlledCamera,
     getSwitcherBusMode,
     getSwitcherPreviewSource,
     getSwitcherProgramSource,
@@ -2934,6 +2939,12 @@ function startPtzJoystickDrag(event, control) {
 
   if (!node || node.type !== "ptzController") {
     return;
+  }
+
+  const camera = getPtzControlledCamera(node);
+
+  if (camera) {
+    cancelPtzPresetRecallAnimation(camera.id);
   }
 
   recordUndoSnapshot();
@@ -3173,6 +3184,134 @@ function normalizePtzState(ptz) {
     tilt: clamp(Number(ptz?.tilt ?? 0), -75, 75),
     zoom: clamp(Number(ptz?.zoom ?? 1.7), 1.1, 3.2)
   };
+}
+
+// PTZ Pro preset keys save/recall the pan/tilt/zoom framing onto whichever
+// camera the controller currently has selected — like a real PTZ camera, the
+// memorized shots belong to the camera itself, so switching "Cam N" on the
+// controller switches to that camera's own set of saved presets too.
+function savePtzPreset(controllerId, presetNumber) {
+  const controller = getNode(controllerId);
+
+  if (!controller || controller.type !== "ptzController") {
+    return;
+  }
+
+  const camera = getPtzControlledCamera(controller);
+
+  if (!camera) {
+    return;
+  }
+
+  recordUndoSnapshot();
+  camera.presets = { ...(camera.presets ?? {}), [presetNumber]: normalizePtzState(camera.ptz) };
+  render();
+}
+
+function recallPtzPreset(controllerId, presetNumber) {
+  const controller = getNode(controllerId);
+
+  if (!controller || controller.type !== "ptzController") {
+    return;
+  }
+
+  const camera = getPtzControlledCamera(controller);
+  const preset = camera?.presets?.[presetNumber];
+
+  if (!preset) {
+    return;
+  }
+
+  recordUndoSnapshot();
+  animatePtzTo(camera, normalizePtzState(preset));
+}
+
+const PTZ_PRESET_RECALL_MS = 650;
+
+function easeInOutCubic(t) {
+  return t < 0.5 ? 4 * t * t * t : 1 - ((-2 * t + 2) ** 3) / 2;
+}
+
+// Glides the camera's pan/tilt/zoom from wherever it currently is to the
+// preset's saved framing, instead of snapping straight there, so the move is
+// visible in the panorama preview — like a real PTZ camera easing into a
+// memorized shot. Only the panorama canvas is repainted per frame (mirroring
+// tickPtzCameraMotion's joystick-drag loop); a full render() only happens
+// once the glide settles, since render() rebuilds the whole node DOM and
+// would otherwise interrupt the animation every frame.
+function cancelPtzPresetRecallAnimation(cameraId) {
+  const existingFrame = ptzPresetRecallAnimations.get(cameraId);
+
+  if (existingFrame) {
+    cancelAnimationFrame(existingFrame);
+    ptzPresetRecallAnimations.delete(cameraId);
+  }
+}
+
+function animatePtzTo(camera, target) {
+  cancelPtzPresetRecallAnimation(camera.id);
+
+  const start = normalizePtzState(camera.ptz);
+  const startTime = performance.now();
+
+  const step = (timestamp) => {
+    const t = clamp((timestamp - startTime) / PTZ_PRESET_RECALL_MS, 0, 1);
+    const eased = easeInOutCubic(t);
+
+    camera.ptz = {
+      pan: start.pan + (target.pan - start.pan) * eased,
+      tilt: start.tilt + (target.tilt - start.tilt) * eased,
+      zoom: start.zoom + (target.zoom - start.zoom) * eased
+    };
+    renderPtzProjectionCanvases();
+
+    if (t < 1) {
+      ptzPresetRecallAnimations.set(camera.id, requestAnimationFrame(step));
+      return;
+    }
+
+    ptzPresetRecallAnimations.delete(camera.id);
+    camera.ptz = target;
+    render();
+  };
+
+  ptzPresetRecallAnimations.set(camera.id, requestAnimationFrame(step));
+}
+
+// A tap (release before the hold delay elapses) recalls the preset; holding
+// past the delay saves the camera's current framing into that slot instead.
+// The action fires from pointerdown/pointerup timing directly (like the
+// audio fader hold-to-repeat controls) rather than from a native click, so
+// the two behaviors can't both fire for the same press.
+function startPtzPresetPress(button) {
+  stopPtzPresetPress(false);
+
+  ptzPresetPressContext = {
+    nodeId: button.dataset.nodeId,
+    preset: Number(button.dataset.preset),
+    longPressFired: false
+  };
+
+  ptzPresetPressTimer = window.setTimeout(() => {
+    if (!ptzPresetPressContext) {
+      return;
+    }
+
+    ptzPresetPressContext.longPressFired = true;
+    savePtzPreset(ptzPresetPressContext.nodeId, ptzPresetPressContext.preset);
+  }, PTZ_PRESET_LONG_PRESS_MS);
+}
+
+function stopPtzPresetPress(triggerShortPress = true) {
+  window.clearTimeout(ptzPresetPressTimer);
+  ptzPresetPressTimer = null;
+
+  const context = ptzPresetPressContext;
+  ptzPresetPressContext = null;
+
+  if (triggerShortPress && context && !context.longPressFired) {
+    recallPtzPreset(context.nodeId, context.preset);
+  }
 }
 
 function renderConnectedMonitorPictures() {
@@ -5183,6 +5322,13 @@ deviceLayer.addEventListener("pointerdown", (event) => {
     return;
   }
 
+  const ptzPresetButton = event.target.closest("[data-action='ptz-preset']");
+
+  if (ptzPresetButton) {
+    startPtzPresetPress(ptzPresetButton);
+    return;
+  }
+
   const gainButton = event.target.closest("[data-action='adjust-audio-fader']");
 
   if (gainButton) {
@@ -5315,6 +5461,7 @@ deviceLayer.addEventListener("pointermove", (event) => {
 deviceLayer.addEventListener("pointerup", endDrag);
 deviceLayer.addEventListener("pointercancel", endDrag);
 deviceLayer.addEventListener("pointerleave", stopFaderHold);
+deviceLayer.addEventListener("pointerleave", () => stopPtzPresetPress(false));
 document.addEventListener("pointermove", (event) => {
   if (activeDrag?.type === "marquee" && activeDrag.pointerId === event.pointerId) {
     updateMarqueeDrag(event);
@@ -5336,6 +5483,7 @@ document.addEventListener("pointermove", (event) => {
 });
 document.addEventListener("pointerup", (event) => {
   stopFaderHold();
+  stopPtzPresetPress(true);
   endInputGainDrag(event);
   endChannelFaderDrag(event);
   endPtzJoystickDrag(event);
@@ -5343,6 +5491,7 @@ document.addEventListener("pointerup", (event) => {
 });
 document.addEventListener("pointercancel", (event) => {
   stopFaderHold();
+  stopPtzPresetPress(false);
   endInputGainDrag(event);
   endChannelFaderDrag(event);
   endPtzJoystickDrag(event);

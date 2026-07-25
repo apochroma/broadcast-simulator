@@ -1550,6 +1550,7 @@ body.is-read-only #openGearLibrary {
 }
 
 .ptz-small-key {
+  position: relative;
   min-height: 34px;
   border: 0;
   border-radius: 5px;
@@ -1557,6 +1558,19 @@ body.is-read-only #openGearLibrary {
   color: #151017;
   font-weight: 900;
   box-shadow: 0 3px 0 rgba(0, 0, 0, 0.32);
+  cursor: pointer;
+}
+
+.ptz-small-key.has-preset::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--preview);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
 }
 
 .ptz-camera-row {
