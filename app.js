@@ -4571,10 +4571,46 @@ function openGearLibrary() {
 
 document.querySelector("#openGearLibrary").addEventListener("click", openGearLibrary);
 document.querySelector(".action-menu")?.addEventListener("click", (event) => {
+  if (event.target.closest(".action-submenu-summary")) {
+    return;
+  }
+
   if (event.target.closest(".action-menu-item")) {
     event.currentTarget.removeAttribute("open");
+    document.querySelector(".action-submenu")?.removeAttribute("open");
   }
 });
+
+// <details> content is hidden via an internal UA mechanism tied to the
+// `open` attribute, not a plain CSS display toggle, so hover-to-open can't
+// be done with CSS alone — the attribute is flipped directly on
+// mouseenter/mouseleave instead. A short close delay bridges the few
+// pixels of gap between a summary and its panel so the menu doesn't snap
+// shut while the pointer is travelling from one to the other.
+function setupHoverToOpen(element) {
+  if (!element) {
+    return;
+  }
+
+  let closeTimer = null;
+
+  element.addEventListener("mouseenter", () => {
+    clearTimeout(closeTimer);
+    element.setAttribute("open", "");
+  });
+
+  element.addEventListener("mouseleave", () => {
+    closeTimer = setTimeout(() => {
+      element.removeAttribute("open");
+      if (element.matches(".action-menu")) {
+        element.querySelector(".action-submenu")?.removeAttribute("open");
+      }
+    }, 250);
+  });
+}
+
+setupHoverToOpen(document.querySelector(".action-menu"));
+setupHoverToOpen(document.querySelector(".action-submenu"));
 
 gearList.addEventListener("click", (event) => {
   if (state.readOnly) {

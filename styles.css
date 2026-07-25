@@ -591,6 +591,54 @@ body.is-read-only #openGearLibrary {
   font-weight: 900;
 }
 
+.action-submenu {
+  position: relative;
+}
+
+/* Higher specificity than ".action-menu summary" (which would otherwise win
+   and force this back to the outer menu's inline-grid summary layout). */
+.action-menu .action-submenu-summary {
+  display: flex;
+  min-width: 0;
+  background: transparent;
+  list-style: none;
+}
+
+.action-submenu-summary::-webkit-details-marker {
+  display: none;
+}
+
+/* ".action-menu summary::after" (the outer ▾/▴ indicator) also matches this
+   nested summary via descendant selector — suppressed so it doesn't double
+   up with the .submenu-caret span used here instead. */
+.action-submenu-summary::after {
+  content: none !important;
+}
+
+.submenu-caret {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.action-submenu[open] > .action-submenu-summary {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.action-submenu-panel {
+  position: absolute;
+  top: -5px;
+  left: calc(100% + 6px);
+  z-index: 91;
+  display: grid;
+  min-width: 170px;
+  padding: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(39, 46, 54, 0.98), rgba(25, 30, 36, 0.98));
+  box-shadow: var(--shadow);
+}
+
 .action-menu-about {
   margin-top: 5px;
   border-top: 1px solid rgba(255, 255, 255, 0.1);

@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Broadcast Signalfluss Simulation</title>
-    <link rel="stylesheet" href="styles.css?v=export-pdf-png-8">
+    <link rel="stylesheet" href="styles.css?v=export-submenu-2">
   </head>
   <body>
     <main class="app-shell">
@@ -17,16 +17,24 @@
                 <span>Add Gear</span>
                 <kbd>⇧A</kbd>
               </button>
-              <button class="action-menu-item" type="button" id="exportSetup">
-                <span>Export als JSON</span>
-                <kbd>⇧E</kbd>
-              </button>
-              <button class="action-menu-item" type="button" id="exportPdf">
-                <span>Als PDF drucken</span>
-              </button>
-              <button class="action-menu-item" type="button" id="exportPng">
-                <span>Als PNG exportieren</span>
-              </button>
+              <details class="action-submenu">
+                <summary class="action-menu-item action-submenu-summary">
+                  <span>Export</span>
+                  <span class="submenu-caret" aria-hidden="true">▸</span>
+                </summary>
+                <div class="action-submenu-panel">
+                  <button class="action-menu-item" type="button" id="exportPdf">
+                    <span>Export PDF</span>
+                  </button>
+                  <button class="action-menu-item" type="button" id="exportPng">
+                    <span>Export PNG</span>
+                  </button>
+                  <button class="action-menu-item" type="button" id="exportSetup">
+                    <span>Export JSON</span>
+                    <kbd>⇧E</kbd>
+                  </button>
+                </div>
+              </details>
               <button class="action-menu-item" type="button" id="importSetup">
                 <span>Import</span>
                 <kbd>⇧I</kbd>
@@ -330,6 +338,6 @@
     <script src="atem-audio.js?v=atem-audio-1"></script>
     <script src="atem-media.js?v=atem-media-1"></script>
     <script src="device-renderers.js?v=align-rotate-1"></script>
-    <script src="app.js?v=export-pdf-png-5"></script>
+    <script src="app.js?v=export-submenu-hover-1"></script>
   </body>
 </html>
