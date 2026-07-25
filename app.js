@@ -2007,6 +2007,18 @@ function resolveTransitionFromPort(portRef, visited = new Set()) {
     return monitorFeed.transition ?? null;
   }
 
+  if (node.type === "converter") {
+    const crossInputPortId = portRef.portId === "sdi-out"
+      ? "hdmi-in"
+      : portRef.portId === "hdmi-out" ? "sdi-in" : null;
+
+    const inputConnection = crossInputPortId && state.connections.find((connection) => (
+      connection.to.nodeId === node.id && connection.to.portId === crossInputPortId
+    ));
+
+    return inputConnection ? resolveTransitionFromPort(inputConnection.from, visited) : null;
+  }
+
   return null;
 }
 
@@ -2333,6 +2345,34 @@ function getFeedFromPort(portRef, visited = new Set()) {
   if (fromNode.type === "monitor" && ["sdi-out", "hdmi-out"].includes(portRef.portId)) {
     visited.add(`${portRef.nodeId}:${portRef.portId}`);
     return getMonitorFeedForOutput(fromNode, portRef.portId, visited);
+  }
+
+  if (fromNode.type === "splitter" && portRef.portId.startsWith("output-")) {
+    visited.add(`${portRef.nodeId}:${portRef.portId}`);
+
+    const inputConnection = state.connections.find((connection) => (
+      connection.to.nodeId === fromNode.id && connection.to.portId === "input-1"
+    ));
+
+    return inputConnection
+      ? getFeedFromPort(inputConnection.from, visited)
+      : { type: "none", connected: false, source: null };
+  }
+
+  if (fromNode.type === "converter") {
+    visited.add(`${portRef.nodeId}:${portRef.portId}`);
+
+    const crossInputPortId = portRef.portId === "sdi-out"
+      ? "hdmi-in"
+      : portRef.portId === "hdmi-out" ? "sdi-in" : null;
+
+    const inputConnection = crossInputPortId && state.connections.find((connection) => (
+      connection.to.nodeId === fromNode.id && connection.to.portId === crossInputPortId
+    ));
+
+    return inputConnection
+      ? getFeedFromPort(inputConnection.from, visited)
+      : { type: "none", connected: false, source: null };
   }
 
   return { type: "program", connected: true, source: resolveSourceFromPort(portRef, visited) };
