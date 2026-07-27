@@ -1816,7 +1816,8 @@ body.is-read-only #openGearLibrary {
 .camera-preview .test-picture,
 .camera-preview .media-surface,
 .camera-preview .source-product-face,
-.camera-preview .source-product-image {
+.camera-preview .source-product-image,
+.camera-preview .camera-3d-scene {
   height: 100%;
 }
 
@@ -1824,9 +1825,202 @@ body.is-read-only #openGearLibrary {
 .camera-preview:hover .test-picture,
 .camera-preview:hover .media-surface,
 .camera-preview:hover .source-product-face,
-.camera-preview:hover .ptz-panorama-view {
+.camera-preview:hover .ptz-panorama-view,
+.camera-preview:hover .camera-3d-scene {
   outline: 2px solid rgba(53, 208, 127, 0.55);
   outline-offset: 2px;
+}
+
+.camera-3d-scene {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  border-radius: 5px;
+  background: radial-gradient(circle at 50% 35%, #24272c, #0e0f11 78%);
+  overflow: hidden;
+}
+
+.camera-3d-model-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.camera-3d-stage {
+  position: relative;
+  width: 92px;
+  height: 150px;
+  transform-style: preserve-3d;
+  transform: perspective(1000px) rotateX(-8deg) rotateY(18deg) scale(1.7);
+}
+
+.camera-3d-pan-rig {
+  position: absolute;
+  left: 50%;
+  top: 80px;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+  transition: transform 0.05s linear;
+}
+
+.camera-3d-yoke {
+  position: absolute;
+  transform-style: preserve-3d;
+}
+
+.camera-3d-arm {
+  position: absolute;
+  top: -2px;
+  width: 10px;
+  height: 46px;
+  background: linear-gradient(90deg, #1a1c20, #34383e 45%, #1a1c20);
+  border-radius: 3px;
+}
+
+.camera-3d-arm-left {
+  transform: translate(-42px, 0);
+}
+
+.camera-3d-arm-right {
+  transform: translate(32px, 0);
+}
+
+.camera-3d-foot {
+  position: absolute;
+  left: -48px;
+  top: 40px;
+  width: 96px;
+  height: 14px;
+  background: linear-gradient(180deg, #26292e, #0f1012);
+  border-radius: 4px;
+}
+
+.camera-3d-head {
+  position: absolute;
+  left: -46px;
+  top: -64px;
+  width: 92px;
+  height: 64px;
+  transform-style: preserve-3d;
+  transition: transform 0.05s linear;
+}
+
+.camera-3d-face {
+  position: absolute;
+  background: linear-gradient(145deg, #2c2f34, #131417);
+  border: 1px solid rgba(0, 0, 0, 0.4);
+}
+
+.camera-3d-face-front,
+.camera-3d-face-back {
+  width: 92px;
+  height: 64px;
+}
+
+.camera-3d-face-front {
+  transform: translateZ(30px);
+}
+
+.camera-3d-face-back {
+  transform: rotateY(180deg) translateZ(30px);
+  background: linear-gradient(145deg, #202226, #0a0b0c);
+}
+
+.camera-3d-face-left,
+.camera-3d-face-right {
+  left: 16px;
+  width: 60px;
+  height: 64px;
+}
+
+.camera-3d-face-left {
+  transform: rotateY(-90deg) translateZ(46px);
+}
+
+.camera-3d-face-right {
+  transform: rotateY(90deg) translateZ(46px);
+}
+
+.camera-3d-face-top,
+.camera-3d-face-bottom {
+  top: 2px;
+  width: 92px;
+  height: 60px;
+}
+
+.camera-3d-face-top {
+  transform: rotateX(90deg) translateZ(32px);
+  background: linear-gradient(145deg, #34383e, #1c1e22);
+}
+
+.camera-3d-face-bottom {
+  transform: rotateX(-90deg) translateZ(32px);
+  background: linear-gradient(145deg, #18191c, #08090a);
+}
+
+.camera-3d-brand {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  transform: translate(-50%, 0) translateZ(31px);
+  color: #d8dadd;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  font-family: Georgia, "Times New Roman", serif;
+  white-space: nowrap;
+}
+
+.camera-3d-leds {
+  position: absolute;
+  left: 50%;
+  bottom: 21px;
+  transform: translate(-50%, 0) translateZ(31px);
+  display: flex;
+  gap: 8px;
+}
+
+.camera-3d-leds span {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #2a2d31;
+}
+
+.camera-3d-leds .is-power {
+  background: #35d07f;
+  box-shadow: 0 0 4px rgba(53, 208, 127, 0.8);
+}
+
+.camera-3d-leds .is-status {
+  background: #4cc9f0;
+  box-shadow: 0 0 4px rgba(76, 201, 240, 0.7);
+}
+
+.camera-3d-lens-rim {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #52565d, #0c0d0e 75%);
+  box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.65), 0 0 0 2px rgba(0, 0, 0, 0.5);
+}
+
+.camera-3d-lens-glass {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 38% 32%, rgba(255, 255, 255, 0.75), transparent 34%),
+    radial-gradient(circle at 60% 68%, #3f7ea3, #0a1015 70%);
+  box-shadow: 0 0 10px rgba(94, 176, 240, 0.55), 0 0 0 2px rgba(150, 200, 230, 0.25);
 }
 
 .test-picture {

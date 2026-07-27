@@ -342,6 +342,10 @@
         return this.renderSourceProductPicture(node);
       }
 
+      if (mode === "model3d") {
+        return this.renderCamera3DModel(node);
+      }
+
       return this.renderSourceColorPicture(node);
     }
 
@@ -366,15 +370,67 @@
       `;
     }
 
+    // A hand-built CSS 3D rig (no model file, no library) standing in for the
+    // physical camera: a pan ring that carries a tilting head, matching a real
+    // PTZ camera's mechanics — pan turns the whole yoke+head, tilt only pitches
+    // the head within it. Driven by the camera's own node.ptz (the same
+    // pan/tilt/zoom state the joystick and presets already read and write), so
+    // it turns live with the joystick and eases smoothly through preset recalls
+    // via the same per-frame updates that already repaint the panorama canvas.
+    renderCamera3DModel(node) {
+      if (node.model3d) {
+        return `
+          <div class="camera-3d-scene">
+            <canvas class="camera-3d-model-canvas" data-ptz-model-canvas="${node.id}" data-model-url="${node.model3d}"></canvas>
+          </div>
+        `;
+      }
+
+      const pan = Number(node.ptz?.pan ?? 0);
+      const tilt = Number(node.ptz?.tilt ?? 0);
+      const zoom = Number(node.ptz?.zoom ?? 1.7);
+      const lensPush = (zoom - 1.7) * 6;
+
+      return `
+        <div class="camera-3d-scene">
+          <div class="camera-3d-stage">
+            <div class="camera-3d-pan-rig" data-ptz-pan-rig="${node.id}" style="transform: rotateY(${pan}deg);">
+              <div class="camera-3d-yoke">
+                <div class="camera-3d-arm camera-3d-arm-left"></div>
+                <div class="camera-3d-arm camera-3d-arm-right"></div>
+                <div class="camera-3d-foot"></div>
+              </div>
+              <div class="camera-3d-head" data-ptz-head="${node.id}" style="transform: rotateX(${-tilt}deg);">
+                <div class="camera-3d-face camera-3d-face-front"></div>
+                <div class="camera-3d-face camera-3d-face-back"></div>
+                <div class="camera-3d-face camera-3d-face-left"></div>
+                <div class="camera-3d-face camera-3d-face-right"></div>
+                <div class="camera-3d-face camera-3d-face-top"></div>
+                <div class="camera-3d-face camera-3d-face-bottom"></div>
+                <div class="camera-3d-brand">Canon</div>
+                <div class="camera-3d-leds"><span class="is-power"></span><span class="is-status"></span></div>
+                <div class="camera-3d-lens-rim" style="transform: translate(-50%, -50%) translateZ(${34 + lensPush}px);"></div>
+                <div class="camera-3d-lens-glass" style="transform: translate(-50%, -50%) translateZ(${40 + lensPush}px);"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
     getSourceViewLabel(node) {
       const mode = this.callbacks.normalizeSourceViewMode(node);
 
       if (mode === "media") {
-        return node.media?.name ?? "Medium";
+        return node.type === "camera" ? "Equirectangular" : (node.media?.name ?? "Medium");
       }
 
       if (mode === "product") {
-        return node.type === "camera" ? "Kamerabild" : "Gerätebild";
+        return node.type === "camera" ? "Produktbild" : "Gerätebild";
+      }
+
+      if (mode === "model3d") {
+        return "3D Model Kamera";
       }
 
       return "Farbe";

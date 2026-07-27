@@ -162,6 +162,7 @@ window.BroadcastDeviceCatalog = (() => {
       title,
       kicker: "Kamera",
       image: "assets/canon-crn300.webp",
+      model3d: "assets/CanonCRN300.glb",
       capabilities: ["video-source", "camera-source", "network-control"],
       width: 270,
       inputs: [

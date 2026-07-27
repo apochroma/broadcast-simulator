@@ -437,12 +437,26 @@ function normalizeSourceViewMode(node) {
     return "product";
   }
 
-  return ["color", "media", "product"].includes(node.viewMode)
+  return ["color", "media", "product", "model3d"].includes(node.viewMode)
     ? node.viewMode
     : getDefaultSourceViewMode(node.type);
 }
 
 function getAvailableSourceViewModes(node) {
+  // Cameras cycle through a fixed set of four views regardless of whether
+  // media happens to be loaded yet (the equirectangular slot just shows a
+  // placeholder until an image is set) — unlike other source nodes, where
+  // "media" only appears once something's actually been loaded into it.
+  if (node.type === "camera") {
+    const modes = ["color", "product", "media"];
+
+    if (node.model3d) {
+      modes.push("model3d");
+    }
+
+    return modes;
+  }
+
   const modes = ["color"];
 
   if (node.media && node.media.kind !== "file") {
@@ -3336,6 +3350,58 @@ function renderPtzProjectionCanvases() {
   document.querySelectorAll(".ptz-panorama-canvas").forEach((canvas) => {
     renderPtzProjectionCanvas(canvas);
   });
+  renderPtzCameraModels();
+}
+
+// Repaints the CSS 3D camera rig's live transform from node.ptz directly
+// (skipping the full render() DOM rebuild), the same way the line above keeps
+// the panorama canvas in sync — called every frame during joystick drag and
+// preset-recall easing so the model visibly turns instead of only updating
+// once motion settles.
+function renderPtzCameraModels() {
+  document.querySelectorAll("[data-ptz-pan-rig]").forEach((panRig) => {
+    const node = getNode(panRig.dataset.ptzPanRig);
+
+    if (node) {
+      panRig.style.transform = `rotateY(${Number(node.ptz?.pan ?? 0)}deg)`;
+    }
+  });
+
+  document.querySelectorAll("[data-ptz-head]").forEach((head) => {
+    const node = getNode(head.dataset.ptzHead);
+
+    if (node) {
+      head.style.transform = `rotateX(${-Number(node.ptz?.tilt ?? 0)}deg)`;
+    }
+  });
+
+  // The Three.js module loads as an ES module, which can finish initializing
+  // after this file's own first render() — until then window.PtzCameraModel3D
+  // just isn't there yet, so any real 3D-model cameras stay on nothing this
+  // pass and pick up on the module's own catch-up call once it's ready.
+  if (window.PtzCameraModel3D) {
+    const liveNodeIds = new Set();
+
+    document.querySelectorAll("[data-ptz-model-canvas]").forEach((canvas) => {
+      const nodeId = canvas.dataset.ptzModelCanvas;
+      const node = getNode(nodeId);
+
+      if (!node) {
+        return;
+      }
+
+      liveNodeIds.add(nodeId);
+      window.PtzCameraModel3D.sync(
+        nodeId,
+        canvas,
+        canvas.dataset.modelUrl,
+        Number(node.ptz?.pan ?? 0),
+        Number(node.ptz?.tilt ?? 0)
+      );
+    });
+
+    window.PtzCameraModel3D.pruneExcept(liveNodeIds);
+  }
 }
 
 function renderPtzProjectionCanvas(canvas) {

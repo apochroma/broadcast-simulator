@@ -4,7 +4,15 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Broadcast Signalfluss Simulation</title>
-    <link rel="stylesheet" href="styles.css?v=ptz-presets-1">
+    <link rel="stylesheet" href="styles.css?v=camera-3d-model-1">
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
   </head>
   <body>
     <main class="app-shell">
@@ -332,12 +340,13 @@
       </form>
     </dialog>
 
-    <script src="device-catalog.js?v=switch-port-offset-2"></script>
+    <script src="device-catalog.js?v=camera-3d-model-1"></script>
     <script src="connections.js?v=lan-rename-1"></script>
     <script src="atem.js?v=ftb-chain-1"></script>
     <script src="atem-audio.js?v=atem-audio-1"></script>
     <script src="atem-media.js?v=atem-media-1"></script>
-    <script src="device-renderers.js?v=switch-meta-1"></script>
-    <script src="app.js?v=delete-key-x-1"></script>
+    <script src="device-renderers.js?v=camera-view-modes-1"></script>
+    <script src="app.js?v=camera-view-modes-1"></script>
+    <script type="module" src="ptz-camera-3d.js?v=camera-3d-model-6"></script>
   </body>
 </html>
