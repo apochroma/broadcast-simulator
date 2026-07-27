@@ -174,6 +174,10 @@
         return this.renderAudioRecorderPanel(node);
       }
 
+      if (node.type === "microphone") {
+        return this.renderMicrophonePanel(node);
+      }
+
       return `
         <div class="simple-device-face">${node.title}</div>
         <div class="node-meta">
@@ -339,6 +343,36 @@
         <div class="node-meta">
           <span>${node.inputs.length} In / ${node.outputs.length} Out</span>
           <span>3x XLR Mic/Line</span>
+        </div>
+      `;
+    }
+
+    renderMicrophonePanel(node) {
+      return `
+        <div class="mic-panel">
+          <div class="mic-body">
+            <div class="mic-cap"></div>
+            <div class="mic-shaft">
+              <div class="mic-model">C-2</div>
+              <div class="mic-pad-row">
+                <div class="mic-pad-switch"></div>
+                <svg class="mic-pad-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+                  <path d="M2 6 L9 6 L17 15"/>
+                </svg>
+                <span class="mic-pad-label">-10 dB</span>
+              </div>
+              <svg class="mic-logo-triangle" viewBox="0 0 40 36" fill="none">
+                <path d="M20 3 L37 32 L3 32 Z" stroke="currentColor" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round"/>
+                <ellipse cx="19" cy="20" rx="4.4" ry="6.6" transform="rotate(-25 19 20)" fill="currentColor"/>
+                <path d="M11 17 Q20 8 29 18" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" fill="none"/>
+              </svg>
+              <div class="mic-wordmark">behringer</div>
+            </div>
+          </div>
+        </div>
+        <div class="node-meta">
+          <span>Kondensator · Niere</span>
+          <span>${node.outputs.length} Out</span>
         </div>
       `;
     }

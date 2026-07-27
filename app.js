@@ -273,6 +273,29 @@ function addRodeWirelessSet() {
   render();
 }
 
+// The Behringer C-2 is sold and used as a matched stereo pair, so the catalog
+// offers it as a single "kit" entry that drops both mics at once, side by
+// side — two fully independent nodes from here on, same as the RODE kit
+// above, so either one can be deleted or repositioned on its own.
+function addBehringerC2Set() {
+  if (state.readOnly) {
+    return;
+  }
+
+  addGear("behringerC2");
+  const mic1 = state.nodes.at(-1);
+
+  addGear("behringerC2");
+  const mic2 = state.nodes.at(-1);
+  mic2.position = {
+    x: mic1.position.x + mic1.width + 40,
+    y: mic1.position.y
+  };
+
+  setSelectedNodes([mic1.id, mic2.id], mic1.id);
+  render();
+}
+
 function getSpawnPosition(type, countOfType, width = 280) {
   const viewportOrigin = {
     x: workspaceViewport.scrollLeft / state.zoom,
@@ -2613,6 +2636,8 @@ function resolveNodeInputSource(node, portId, visited = new Set()) {
   return connection ? resolveSourceFromPort(connection.from, visited) : null;
 }
 
+const AUDIO_RECORDER_INPUT_PRIORITY = ["mic-line-1", "mic-line-2", "mic-line-3", "aux-in"];
+
 function resolveSourceFromPort(portRef, visited = new Set()) {
   const node = getNode(portRef.nodeId);
 
@@ -2629,6 +2654,10 @@ function resolveSourceFromPort(portRef, visited = new Set()) {
   }
 
   if (node.type === "wirelessReceiver" && portRef.portId === "mic-out") {
+    return node;
+  }
+
+  if (node.type === "microphone") {
     return node;
   }
 
@@ -2660,6 +2689,21 @@ function resolveSourceFromPort(portRef, visited = new Set()) {
     return crossInputPortId ? resolveNodeInputSource(node, crossInputPortId, visited) : null;
   }
 
+  if (node.type === "audioRecorder") {
+    // The mixer has no per-channel mute/fader modeled, so all of its outputs
+    // just report whichever input is actually plugged in first, checked in
+    // physical priority order (the 3 mic/line channels, then aux).
+    for (const inputPortId of AUDIO_RECORDER_INPUT_PRIORITY) {
+      const source = resolveNodeInputSource(node, inputPortId, visited);
+
+      if (source) {
+        return source;
+      }
+    }
+
+    return null;
+  }
+
   return null;
 }
 
@@ -2674,6 +2718,20 @@ function getConnectionAudioMarkers(connection) {
 
   if (fromNode?.type === "wirelessReceiver" && connection.from.portId === "mic-out") {
     return getWirelessReceiverMicOutMarkers(fromNode, toNode, connection.to.portId);
+  }
+
+  // A live mic is always "on" once cabled up — no mute/on-off state modeled
+  // for it, unlike the mixer/ATEM downstream of it.
+  if (fromNode?.type === "microphone") {
+    return [{
+      id: `${fromNode.id}-${connection.from.portId}`,
+      label: fromNode.shortName ?? fromNode.title,
+      color: getSourceAudioColor(fromNode, fromNode.id)
+    }];
+  }
+
+  if (fromNode?.type === "audioRecorder") {
+    return getAudioRecorderOutputMarkers(fromNode, toNode, connection.to.portId);
   }
 
   if (toNode?.type === "switcher" && connection.to.portId.startsWith("input-")) {
@@ -2728,6 +2786,30 @@ function getWirelessReceiverMicOutMarkers(receiver, toNode, toPortId) {
       id: `${receiver.id}-${portId}-mic-out`,
       label: portId === "wireless-in-1" ? "CH 1" : "CH 2",
       color: getWirelessChannelColor(portId)
+    }));
+}
+
+// No per-channel mute/fader is modeled on the mixer, so every mic actually
+// plugged into it shows up as its own note on whichever output is cabled
+// onward — same ATEM on/off gating as the wireless receiver above, otherwise
+// the signal is just always considered "live".
+function getAudioRecorderOutputMarkers(recorder, toNode, toPortId) {
+  if (toNode?.type === "switcher") {
+    const micId = toPortId?.startsWith("mic-in-") ? `mic${toPortId.replace("mic-in-", "")}` : null;
+    const micIsOn = micId && getSwitcherMicAudioMode(toNode, micId) === "on";
+
+    if (!micIsOn) {
+      return [];
+    }
+  }
+
+  return AUDIO_RECORDER_INPUT_PRIORITY
+    .map((portId) => ({ portId, source: resolveNodeInputSource(recorder, portId) }))
+    .filter(({ source }) => source)
+    .map(({ portId, source }) => ({
+      id: `${recorder.id}-${portId}-out`,
+      label: source.shortName ?? source.title,
+      color: getSourceAudioColor(source, `${recorder.id}-${portId}`)
     }));
 }
 
@@ -4831,6 +4913,8 @@ gearList.addEventListener("click", (event) => {
 
   if (button.dataset.addGear === "rodeWirelessGo2Set") {
     addRodeWirelessSet();
+  } else if (button.dataset.addGear === "behringerC2Set") {
+    addBehringerC2Set();
   } else {
     addGear(button.dataset.addGear);
   }

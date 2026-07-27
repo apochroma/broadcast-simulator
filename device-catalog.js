@@ -121,6 +121,17 @@ window.BroadcastDeviceCatalog = (() => {
         { id: "headphone-out", label: "Phones", signal: "Headphone 3.5mm", top: 50 },
         { id: "usb-c-out", label: "USB-C", signal: "USB-C", top: 75 }
       ]
+    },
+    behringerC2: {
+      type: "microphone",
+      title: "Behringer C-2",
+      kicker: "Mikrofon",
+      capabilities: ["audio-source", "condenser-microphone"],
+      width: 200,
+      inputs: [],
+      outputs: [
+        { id: "xlr-out", label: "XLR Out", signal: "XLR", top: 50 }
+      ]
     }
   };
 
@@ -145,7 +156,8 @@ window.BroadcastDeviceCatalog = (() => {
     ["networkSwitch16", "Netzwerk", "PoE Netzwerk-Switch 16-Port", "16x LAN"],
     ["networkSwitch24", "Netzwerk", "PoE Netzwerk-Switch 24-Port", "24x LAN"],
     ["rodeWirelessGo2Set", "RODE", "Wireless GO II (Set)", "1x Receiver + 2x Transmitter, 3.5mm Mic Out, koppelt drahtlos"],
-    ["soundDevicesMixPre3", "Sound Devices", "MixPre-3 II", "3x XLR Mic/Line, Aux In, TC In, Line-/Kopfhörer-Out, USB-C"]
+    ["soundDevicesMixPre3", "Sound Devices", "MixPre-3 II", "3x XLR Mic/Line, Aux In, TC In, Line-/Kopfhörer-Out, USB-C"],
+    ["behringerC2Set", "Behringer", "C-2 Stereoset", "2x Kondensatormikrofon, XLR Out, Niere, paarweise abgeglichen"]
   ];
 
   const legacyGearAliases = {
