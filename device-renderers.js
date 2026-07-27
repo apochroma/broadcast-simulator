@@ -170,6 +170,10 @@
         return this.renderMicroConverter(node);
       }
 
+      if (node.type === "audioRecorder") {
+        return this.renderAudioRecorderPanel(node);
+      }
+
       return `
         <div class="simple-device-face">${node.title}</div>
         <div class="node-meta">
@@ -323,6 +327,18 @@
         </div>
         <div class="node-meta">
           <span>${node.inputs.length} In / ${node.outputs.length} Out</span>
+        </div>
+      `;
+    }
+
+    renderAudioRecorderPanel(node) {
+      return `
+        <div class="simple-device-face mixpre-face">
+          <img class="mixpre-photo" src="${node.image}" alt="${node.title}">
+        </div>
+        <div class="node-meta">
+          <span>${node.inputs.length} In / ${node.outputs.length} Out</span>
+          <span>3x XLR Mic/Line</span>
         </div>
       `;
     }

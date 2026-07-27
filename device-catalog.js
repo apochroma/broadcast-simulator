@@ -101,6 +101,26 @@ window.BroadcastDeviceCatalog = (() => {
       outputs: [
         { id: "wireless-out", label: "Wireless", signal: "Wireless", top: 50 }
       ]
+    },
+    soundDevicesMixPre3: {
+      type: "audioRecorder",
+      title: "Sound Devices MixPre-3 II",
+      kicker: "Recorder / Mixer",
+      image: "assets/mixpre3.png",
+      capabilities: ["audio-source", "audio-mixer", "audio-recorder"],
+      width: 300,
+      inputs: [
+        { id: "mic-line-1", label: "Mic/Line 1", signal: "XLR", top: 15 },
+        { id: "mic-line-2", label: "Mic/Line 2", signal: "XLR", top: 30 },
+        { id: "mic-line-3", label: "Mic/Line 3", signal: "XLR", top: 45 },
+        { id: "aux-in", label: "Aux In", signal: "Mic 3.5mm", top: 60 },
+        { id: "tc-in", label: "TC In", signal: "Timecode", top: 75 }
+      ],
+      outputs: [
+        { id: "line-out", label: "Line Out", signal: "Mic 3.5mm", top: 25 },
+        { id: "headphone-out", label: "Phones", signal: "Headphone 3.5mm", top: 50 },
+        { id: "usb-c-out", label: "USB-C", signal: "USB-C", top: 75 }
+      ]
     }
   };
 
@@ -124,7 +144,8 @@ window.BroadcastDeviceCatalog = (() => {
     ["networkSwitch8", "Netzwerk", "PoE Netzwerk-Switch 8-Port", "8x LAN"],
     ["networkSwitch16", "Netzwerk", "PoE Netzwerk-Switch 16-Port", "16x LAN"],
     ["networkSwitch24", "Netzwerk", "PoE Netzwerk-Switch 24-Port", "24x LAN"],
-    ["rodeWirelessGo2Set", "RODE", "Wireless GO II (Set)", "1x Receiver + 2x Transmitter, 3.5mm Mic Out, koppelt drahtlos"]
+    ["rodeWirelessGo2Set", "RODE", "Wireless GO II (Set)", "1x Receiver + 2x Transmitter, 3.5mm Mic Out, koppelt drahtlos"],
+    ["soundDevicesMixPre3", "Sound Devices", "MixPre-3 II", "3x XLR Mic/Line, Aux In, TC In, Line-/Kopfhörer-Out, USB-C"]
   ];
 
   const legacyGearAliases = {

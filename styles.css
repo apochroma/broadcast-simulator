@@ -16,6 +16,7 @@
   --signal-headphones: #ff9f43;
   --signal-network: #9b7bff;
   --signal-wireless: #ff6fb3;
+  --signal-timecode: #57d9a3;
   --audio-note-1: #d65aff;
   --audio-note-2: #ff4f6a;
   --audio-note-3: #55e6a5;
@@ -1293,6 +1294,18 @@ body.is-read-only #openGearLibrary {
   font-size: 1.4rem;
   font-weight: 900;
   text-align: center;
+}
+
+.mixpre-face {
+  padding: 8px;
+  min-height: 0;
+}
+
+.mixpre-photo {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 4px;
 }
 
 .switcher-title-face {

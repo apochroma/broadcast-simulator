@@ -11,7 +11,8 @@ const signalColors = {
   "Headphone 3.5mm": cssVar("--signal-headphones"),
   XLR: cssVar("--signal-audio"),
   Network: cssVar("--signal-network"),
-  Wireless: cssVar("--signal-wireless")
+  Wireless: cssVar("--signal-wireless"),
+  Timecode: cssVar("--signal-timecode")
 };
 
 const uiIcons = {
