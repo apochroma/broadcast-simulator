@@ -141,6 +141,29 @@
     return feedbacks;
   }
 
+  // The camera-selector button in this Companion setup's "menu" row has a
+  // white bgcolor baked in; its two siblings (jump to Exposure, jump to
+  // Recall/Save Presets) use the exact same GoToPage-from-initPage pattern
+  // but were left black. Detecting that shared pattern lets us align all
+  // three visually without hardcoding page/button positions.
+  function isCameraPageShortcutAction(action) {
+    return action.module === "internal"
+      && action.definitionId === "custom_variable_set_value"
+      && action.variableName === "GoToPage"
+      && typeof action.value === "string"
+      && action.value.startsWith("$(internal:custom_initPage)");
+  }
+
+  function isCameraPageShortcutButton(actions) {
+    const allActions = [
+      ...actions.press,
+      ...actions.release,
+      ...actions.holdGroups.flatMap((group) => group.actions)
+    ];
+
+    return allActions.some(isCameraPageShortcutAction);
+  }
+
   function rgbIntToCss(value) {
     if (typeof value !== "number") {
       return null;
@@ -166,14 +189,16 @@
     }
 
     const style = cell.style ?? {};
+    const actions = normalizeButtonActions(rawConfig, cell);
+    const forceWhiteBg = (style.bgcolor === 0 || style.bgcolor == null) && isCameraPageShortcutButton(actions);
 
     return {
       kind: "button",
       text: style.text ?? "",
       png64: style.png64 ?? null,
-      bgcolor: rgbIntToCss(style.bgcolor),
-      color: rgbIntToCss(style.color),
-      actions: normalizeButtonActions(rawConfig, cell),
+      bgcolor: forceWhiteBg ? "rgb(255, 255, 255)" : rgbIntToCss(style.bgcolor),
+      color: forceWhiteBg ? "rgb(0, 0, 0)" : rgbIntToCss(style.color),
+      actions,
       feedbacks: normalizeButtonFeedbacks(rawConfig, cell)
     };
   }
