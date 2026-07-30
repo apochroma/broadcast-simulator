@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Broadcast Signalfluss Simulation</title>
-    <link rel="stylesheet" href="styles.css?v=behringer-c2-12">
+    <link rel="stylesheet" href="styles.css?v=streamdeck-5">
     <script type="importmap">
       {
         "imports": {
@@ -56,6 +56,7 @@
             </div>
           </details>
           <input id="importSetupFile" type="file" accept="application/json,.json" hidden>
+          <input id="streamDeckImportFile" type="file" accept=".companionconfig" hidden>
         </section>
 
         <section class="align-controls" aria-label="Ausrichten und Drehen">
@@ -340,13 +341,14 @@
       </form>
     </dialog>
 
-    <script src="device-catalog.js?v=behringer-c2-12"></script>
+    <script src="device-catalog.js?v=streamdeck-5"></script>
     <script src="connections.js?v=lan-rename-1"></script>
-    <script src="atem.js?v=ftb-chain-1"></script>
+    <script src="atem.js?v=streamdeck-5"></script>
     <script src="atem-audio.js?v=atem-audio-1"></script>
     <script src="atem-media.js?v=atem-media-1"></script>
-    <script src="device-renderers.js?v=behringer-c2-12"></script>
-    <script src="app.js?v=behringer-c2-12"></script>
+    <script src="companion-import.js?v=streamdeck-5"></script>
+    <script src="device-renderers.js?v=streamdeck-5"></script>
+    <script src="app.js?v=streamdeck-5"></script>
     <script type="module" src="ptz-camera-3d.js?v=camera-3d-model-6"></script>
   </body>
 </html>

@@ -1443,6 +1443,166 @@ body.is-read-only #openGearLibrary {
   color: #e4d8ff;
 }
 
+.streamdeck-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.streamdeck-empty {
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 200px;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px dashed rgba(255, 255, 255, 0.16);
+  text-align: center;
+  color: var(--muted);
+}
+
+.streamdeck-surface-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.streamdeck-surface-option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #1c1c1e;
+  color: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.streamdeck-surface-option span {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.streamdeck-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.streamdeck-page-label {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.streamdeck-grid {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border-radius: 10px;
+  background: #0c0c0d;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.streamdeck-btn {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  padding: 2px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #1c1c1e;
+  color: #fff;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.streamdeck-btn-empty {
+  aspect-ratio: 1;
+  border-radius: 6px;
+  border: 1px dashed rgba(255, 255, 255, 0.06);
+  background: transparent;
+}
+
+.streamdeck-btn-pagenav {
+  background: #2a2a2c;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.streamdeck-btn-icon {
+  width: 100%;
+  height: 60%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.streamdeck-mapping-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.streamdeck-mapping-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: #1c1c1e;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.streamdeck-mapping-row span {
+  flex: 1;
+  min-width: 0;
+  color: #fff;
+  font-size: 0.78rem;
+}
+
+.streamdeck-mapping-row small {
+  color: var(--muted);
+}
+
+.streamdeck-mapping-row select,
+.streamdeck-mapping-row .streamdeck-camera-name-input {
+  flex-shrink: 0;
+  background: #0c0c0d;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  padding: 3px 6px;
+  font-size: 0.76rem;
+}
+
+.streamdeck-mapping-row .streamdeck-camera-name-input {
+  width: 64px;
+}
+
+.streamdeck-btn-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  font-size: 0.48rem;
+  line-height: 1.15;
+  text-align: center;
+  pointer-events: none;
+  word-break: break-word;
+  white-space: pre-line;
+}
+
 .ptz-panel {
   position: relative;
   display: grid;

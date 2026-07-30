@@ -137,6 +137,7 @@ const gearDialog = document.querySelector("#gearDialog");
 const gearList = document.querySelector("#gearList");
 const gearSearch = document.querySelector("#gearSearch");
 const importSetupFile = document.querySelector("#importSetupFile");
+const streamDeckImportFile = document.querySelector("#streamDeckImportFile");
 const aboutDialog = document.querySelector("#aboutDialog");
 const editGearDialog = document.querySelector("#editGearDialog");
 const editGearHeading = document.querySelector("#editGearHeading");
@@ -178,6 +179,10 @@ let activePtzJoystickDrag = null;
 let ptzAnimationFrame = null;
 let ptzPresetPressTimer = null;
 let ptzPresetPressContext = null;
+let streamDeckPressTimers = [];
+let streamDeckPressContext = null;
+let activeStreamDeckPtzMotion = null;
+let streamDeckPtzAnimationFrame = null;
 const ptzPresetRecallAnimations = new Map();
 let connectionController = null;
 let atemController = null;
@@ -221,7 +226,13 @@ function addGear(type, customTemplate) {
     cutFlashing: false,
     audio: template.type === "switcher" ? createSwitcherAudioState(template.inputCount) : null,
     sourceColor: sourceLook.color,
-    pattern: sourceLook.pattern
+    pattern: sourceLook.pattern,
+    companionImport: template.type === "streamDeckXL" ? null : undefined,
+    companionSurfaceChoices: template.type === "streamDeckXL" ? null : undefined,
+    currentPageId: template.type === "streamDeckXL" ? null : undefined,
+    instanceMap: template.type === "streamDeckXL" ? {} : undefined,
+    instanceNames: template.type === "streamDeckXL" ? {} : undefined,
+    customVariables: template.type === "streamDeckXL" ? {} : undefined
   };
 
   state.nextId += 1;
@@ -2962,6 +2973,7 @@ deviceRenderer = new BroadcastDeviceRenderers.DeviceRenderer({
     getActiveSwitcher,
     getMonitorLabel,
     getPtzControlledCamera,
+    getStreamDeckButtonStyle,
     getSwitcherBusMode,
     getSwitcherPreviewSource,
     getSwitcherProgramSource,
@@ -3199,6 +3211,10 @@ function moveSelectedPtzCamera(controller, x, y, zoomDirection = 0, elapsed = 1 
     return;
   }
 
+  movePtzCameraByVector(camera, x, y, zoomDirection, elapsed);
+}
+
+function movePtzCameraByVector(camera, x, y, zoomDirection = 0, elapsed = 1 / 60) {
   const current = normalizePtzState(camera.ptz);
   const panVelocity = Math.sign(x) * Math.pow(Math.abs(x), 1.35) * 82;
   const tiltVelocity = Math.sign(y) * Math.pow(Math.abs(y), 1.35) * 48;
@@ -3211,6 +3227,56 @@ function moveSelectedPtzCamera(controller, x, y, zoomDirection = 0, elapsed = 1 
     zoom: clamp(current.zoom + zoomVelocity * elapsed, 1.1, 3.2)
   };
 }
+
+// Continuous pan/tilt motion driven by holding a Stream Deck direction
+// button (canon-ptz "up"/"left"/etc.), addressing the mapped camera directly
+// — the joystick's own drag loop (tickPtzCameraMotion) is tied to a
+// ptzController node and its "selected camera", which doesn't apply here.
+function startStreamDeckPtzMotion(camera, vector) {
+  if (!camera) {
+    return;
+  }
+
+  activeStreamDeckPtzMotion = { camera, vector, lastFrameTime: null };
+
+  if (!streamDeckPtzAnimationFrame) {
+    streamDeckPtzAnimationFrame = requestAnimationFrame(tickStreamDeckPtzMotion);
+  }
+}
+
+function stopStreamDeckPtzMotion() {
+  activeStreamDeckPtzMotion = null;
+}
+
+function tickStreamDeckPtzMotion(timestamp) {
+  streamDeckPtzAnimationFrame = null;
+
+  if (!activeStreamDeckPtzMotion) {
+    return;
+  }
+
+  const motion = activeStreamDeckPtzMotion;
+  const elapsed = motion.lastFrameTime ? Math.min((timestamp - motion.lastFrameTime) / 1000, 0.05) : 0;
+  motion.lastFrameTime = timestamp;
+
+  if (elapsed > 0) {
+    movePtzCameraByVector(motion.camera, motion.vector.x, motion.vector.y, 0, elapsed);
+    renderPtzProjectionCanvases();
+  }
+
+  streamDeckPtzAnimationFrame = requestAnimationFrame(tickStreamDeckPtzMotion);
+}
+
+const STREAM_DECK_PTZ_DIRECTIONS = {
+  up: { x: 0, y: -1 },
+  down: { x: 0, y: 1 },
+  left: { x: -1, y: 0 },
+  right: { x: 1, y: 0 },
+  upLeft: { x: -1, y: -1 },
+  upRight: { x: 1, y: -1 },
+  downLeft: { x: -1, y: 1 },
+  downRight: { x: 1, y: 1 }
+};
 
 function getPtzControlledCamera(controller) {
   const cameraNumber = Number(controller?.selectedCamera ?? 1);
@@ -3283,6 +3349,30 @@ function normalizePtzState(ptz) {
   };
 }
 
+// Preset storage lives on the camera itself (not the controller), so any
+// controller — the PTZ Pro's numbered keys, or an imported Stream Deck button
+// mapped directly to this camera — can save/recall the same memorized shots.
+function saveCameraPreset(camera, presetNumber) {
+  if (!camera || camera.type !== "camera") {
+    return;
+  }
+
+  recordUndoSnapshot();
+  camera.presets = { ...(camera.presets ?? {}), [presetNumber]: normalizePtzState(camera.ptz) };
+  render();
+}
+
+function recallCameraPreset(camera, presetNumber) {
+  const preset = camera?.presets?.[presetNumber];
+
+  if (!preset) {
+    return;
+  }
+
+  recordUndoSnapshot();
+  animatePtzTo(camera, normalizePtzState(preset));
+}
+
 // PTZ Pro preset keys save/recall the pan/tilt/zoom framing onto whichever
 // camera the controller currently has selected — like a real PTZ camera, the
 // memorized shots belong to the camera itself, so switching "Cam N" on the
@@ -3294,15 +3384,7 @@ function savePtzPreset(controllerId, presetNumber) {
     return;
   }
 
-  const camera = getPtzControlledCamera(controller);
-
-  if (!camera) {
-    return;
-  }
-
-  recordUndoSnapshot();
-  camera.presets = { ...(camera.presets ?? {}), [presetNumber]: normalizePtzState(camera.ptz) };
-  render();
+  saveCameraPreset(getPtzControlledCamera(controller), presetNumber);
 }
 
 function recallPtzPreset(controllerId, presetNumber) {
@@ -3312,15 +3394,7 @@ function recallPtzPreset(controllerId, presetNumber) {
     return;
   }
 
-  const camera = getPtzControlledCamera(controller);
-  const preset = camera?.presets?.[presetNumber];
-
-  if (!preset) {
-    return;
-  }
-
-  recordUndoSnapshot();
-  animatePtzTo(camera, normalizePtzState(preset));
+  recallCameraPreset(getPtzControlledCamera(controller), presetNumber);
 }
 
 const PTZ_PRESET_RECALL_MS = 650;
@@ -3409,6 +3483,426 @@ function stopPtzPresetPress(triggerShortPress = true) {
   if (triggerShortPress && context && !context.longPressFired) {
     recallPtzPreset(context.nodeId, context.preset);
   }
+}
+
+// Mirrors the PTZ-preset press pattern above: "down" actions fire immediately,
+// each hold-duration group fires (in place of "release") once held that long
+// — matching Companion's own short-press-vs-hold buttons (e.g. this file's
+// "Recall Presets" on tap vs. "Save Presets" after a 1s hold).
+function startStreamDeckPress(button) {
+  stopStreamDeckPress(false);
+
+  const nodeId = button.dataset.nodeId;
+  const node = getNode(nodeId);
+  const cell = getStreamDeckCell(node, button.dataset.row, button.dataset.col);
+
+  if (!node || !cell || cell.kind !== "button") {
+    return;
+  }
+
+  runStreamDeckActions(node, cell.actions.press);
+
+  const context = { nodeId, cell, firedHoldGroup: null };
+  streamDeckPressContext = context;
+
+  streamDeckPressTimers = (cell.actions.holdGroups ?? []).map((group) => window.setTimeout(() => {
+    if (streamDeckPressContext !== context || context.firedHoldGroup) {
+      return;
+    }
+
+    context.firedHoldGroup = group;
+    runStreamDeckActions(getNode(nodeId), group.actions);
+  }, group.afterMs));
+}
+
+function stopStreamDeckPress(triggerRelease = true) {
+  // Always stop any continuous PTZ motion a direction button may have
+  // started, regardless of whether the button's own release actions include
+  // an explicit stop — a held-and-released button must never keep panning.
+  stopStreamDeckPtzMotion();
+
+  streamDeckPressTimers.forEach((timer) => window.clearTimeout(timer));
+  streamDeckPressTimers = [];
+
+  const context = streamDeckPressContext;
+  streamDeckPressContext = null;
+
+  if (triggerRelease && context && !context.firedHoldGroup) {
+    const node = getNode(context.nodeId);
+
+    if (node) {
+      runStreamDeckActions(node, context.cell.actions.release);
+    }
+  }
+}
+
+// --- Stream Deck / Companion integration -----------------------------------
+// Imports a Bitfocus Companion ".companionconfig" export and simulates the
+// subset of it that maps onto devices this app already models: ATEM
+// program/preview/tally and PTZ camera presets. Everything else in the
+// export (SuperSource, macros, other integrations) still renders with its
+// original label/icon/color but does nothing when pressed — see specs.md.
+
+let pendingStreamDeckImportNodeId = null;
+
+function triggerStreamDeckImport(nodeId) {
+  if (state.readOnly) {
+    return;
+  }
+
+  pendingStreamDeckImportNodeId = nodeId;
+  streamDeckImportFile.click();
+}
+
+async function handleStreamDeckImportFile(file) {
+  const nodeId = pendingStreamDeckImportNodeId;
+  pendingStreamDeckImportNodeId = null;
+  const node = getNode(nodeId);
+
+  if (!node || node.type !== "streamDeckXL") {
+    return;
+  }
+
+  let rawConfig;
+
+  try {
+    rawConfig = await window.CompanionImport.decompressAndParse(file);
+  } catch (error) {
+    window.alert(`Companion-Konfiguration konnte nicht gelesen werden: ${error.message}`);
+    return;
+  }
+
+  const surfaces = window.CompanionImport.listStreamDeckSurfaces(rawConfig).filter(
+    (surface) => surface.columns === node.gridColumns && surface.rows === node.gridRows
+  );
+
+  if (!surfaces.length) {
+    window.alert(`Keine passende Stream-Deck-Surface (${node.gridColumns}x${node.gridRows}) in dieser Konfiguration gefunden.`);
+    return;
+  }
+
+  recordUndoSnapshot();
+  node.companionRawConfig = rawConfig;
+
+  if (surfaces.length === 1) {
+    applyStreamDeckSurface(node, surfaces[0].key);
+    return;
+  }
+
+  node.companionSurfaceChoices = surfaces;
+  render();
+}
+
+function pickStreamDeckSurface(nodeId, surfaceKey) {
+  const node = getNode(nodeId);
+
+  if (!node || node.type !== "streamDeckXL" || !node.companionRawConfig) {
+    return;
+  }
+
+  recordUndoSnapshot();
+  applyStreamDeckSurface(node, surfaceKey);
+}
+
+function applyStreamDeckSurface(node, surfaceKey) {
+  const normalized = window.CompanionImport.normalizeForSurface(node.companionRawConfig, surfaceKey);
+  node.companionImport = normalized;
+  node.currentPageId = normalized.startupPageId;
+  node.instanceMap = {};
+  node.companionSurfaceChoices = null;
+  node.companionRawConfig = null;
+  autoMapStreamDeckInstances(node);
+  render();
+}
+
+// Fills in still-unmapped bmd-atem/canon-ptz instances with whatever
+// switcher/camera nodes exist in the scene, pairing them in a stable order
+// (instance label, node creation order) so re-running this after adding more
+// gear only fills gaps rather than reshuffling anything. Never touches an
+// instance that already has a mapping — manual choices always win.
+function autoMapStreamDeckInstances(node) {
+  if (!node || node.type !== "streamDeckXL" || !node.companionImport) {
+    return false;
+  }
+
+  const relevantModules = { "bmd-atem": "switcher", "canon-ptz": "camera" };
+  const usedNodeIds = new Set(Object.values(node.instanceMap ?? {}));
+
+  const instanceEntries = Object.entries(node.companionImport.instances)
+    .filter(([, instance]) => relevantModules[instance.moduleId])
+    .sort(([, a], [, b]) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+
+  let changed = false;
+  const nextInstanceMap = { ...(node.instanceMap ?? {}) };
+
+  instanceEntries.forEach(([instanceId, instance]) => {
+    if (nextInstanceMap[instanceId]) {
+      return;
+    }
+
+    const candidateType = relevantModules[instance.moduleId];
+    const candidate = state.nodes.find((candidateNode) => candidateNode.type === candidateType && !usedNodeIds.has(candidateNode.id));
+
+    if (candidate) {
+      nextInstanceMap[instanceId] = candidate.id;
+      usedNodeIds.add(candidate.id);
+      changed = true;
+    }
+  });
+
+  if (changed) {
+    node.instanceMap = nextInstanceMap;
+  }
+
+  return changed;
+}
+
+function navigateStreamDeckPage(nodeId, direction) {
+  const node = getNode(nodeId);
+
+  if (!node || node.type !== "streamDeckXL" || !node.companionImport) {
+    return;
+  }
+
+  const order = node.companionImport.pageOrder;
+  const currentIndex = order.indexOf(node.currentPageId);
+
+  if (currentIndex === -1 || !order.length) {
+    return;
+  }
+
+  const nextIndex = direction === "up"
+    ? (currentIndex - 1 + order.length) % order.length
+    : (currentIndex + 1) % order.length;
+
+  node.currentPageId = order[nextIndex];
+  render();
+}
+
+function toggleStreamDeckMapping(nodeId, open) {
+  const node = getNode(nodeId);
+
+  if (!node || node.type !== "streamDeckXL") {
+    return;
+  }
+
+  node.streamDeckMappingOpen = open;
+
+  if (open) {
+    // Catches gear added to the scene after import but before opening this
+    // panel — anything still unmapped gets a default now, same rule as import.
+    autoMapStreamDeckInstances(node);
+  }
+
+  render();
+}
+
+function setStreamDeckInstanceMapping(nodeId, instanceId, targetNodeId) {
+  const node = getNode(nodeId);
+
+  if (!node || node.type !== "streamDeckXL") {
+    return;
+  }
+
+  recordUndoSnapshot();
+  node.instanceMap = { ...(node.instanceMap ?? {}) };
+
+  if (targetNodeId) {
+    node.instanceMap[instanceId] = targetNodeId;
+  } else {
+    delete node.instanceMap[instanceId];
+  }
+
+  render();
+}
+
+// Companion buttons often reference "$(<instance label>:cameraName)" in their
+// text — a variable Companion itself resolves from a name the user typed into
+// its own UI. We don't import that name (it isn't in the button/page data,
+// only inside Companion's own per-instance config), so instead we let the
+// user set it once per PTZ instance here and substitute it wherever that
+// variable appears on any button text.
+function setStreamDeckInstanceName(nodeId, instanceId, name) {
+  const node = getNode(nodeId);
+
+  if (!node || node.type !== "streamDeckXL") {
+    return;
+  }
+
+  recordUndoSnapshot();
+  node.instanceNames = { ...(node.instanceNames ?? {}) };
+
+  if (name) {
+    node.instanceNames[instanceId] = name;
+  } else {
+    delete node.instanceNames[instanceId];
+  }
+
+  render();
+}
+
+function getStreamDeckCell(node, row, col) {
+  const page = node?.companionImport?.pages?.[node.currentPageId];
+  const entry = page?.buttons.find((button) => button.row === Number(row) && button.col === Number(col));
+  return entry?.cell ?? null;
+}
+
+// Companion custom variables are referenced as "$(internal:custom_<name>)",
+// optionally with a trailing "+N"/"-N" (the exact pattern this Companion
+// setup uses to compute a target page from a per-camera base page number).
+// Anything else is treated as a plain literal (numeric or string).
+function evaluateStreamDeckExpression(node, expr) {
+  if (expr === undefined || expr === null) {
+    return null;
+  }
+
+  const str = String(expr).trim();
+  const match = str.match(/^\$\(internal:custom_([a-zA-Z0-9_]+)\)\s*([+-]\s*\d+)?$/);
+
+  if (match) {
+    const base = Number(node.customVariables?.[match[1]] ?? 0);
+    const offset = match[2] ? Number(match[2].replace(/\s+/g, "")) : 0;
+    return base + offset;
+  }
+
+  const numeric = Number(str);
+  return Number.isFinite(numeric) && str !== "" ? numeric : str;
+}
+
+// Runs one press/release/hold action list in order — the sequence matters:
+// this Companion setup's page-jump buttons first set a base page into one
+// custom variable, then derive a target page (base +N) into a second, then
+// jump via set_page reading that second variable back out.
+function runStreamDeckActions(node, actions) {
+  (actions ?? []).forEach((action) => runStreamDeckAction(node, action));
+}
+
+function runStreamDeckAction(node, action) {
+  if (action.module === "internal" && action.definitionId === "custom_variable_set_value") {
+    const value = evaluateStreamDeckExpression(node, action.value);
+    node.customVariables = { ...(node.customVariables ?? {}), [action.variableName]: value };
+    return;
+  }
+
+  if (action.module === "internal" && action.definitionId === "set_page") {
+    const targetPageId = String(evaluateStreamDeckExpression(node, action.page) ?? "");
+
+    if (node.companionImport.pages[targetPageId]) {
+      node.currentPageId = targetPageId;
+      render();
+    }
+
+    return;
+  }
+
+  const targetNodeId = node.instanceMap?.[action.instanceId];
+
+  if (!targetNodeId) {
+    return;
+  }
+
+  if (action.module === "bmd-atem") {
+    const input = Number(action.input);
+
+    if (action.definitionId === "program" && Number.isFinite(input)) {
+      atemController.setProgramInput(targetNodeId, input);
+    } else if (action.definitionId === "preview" && Number.isFinite(input)) {
+      atemController.setPreviewInput(targetNodeId, input);
+    } else if (action.definitionId === "cut") {
+      atemController.cut(targetNodeId);
+    } else if (action.definitionId === "auto") {
+      atemController.auto(targetNodeId);
+    }
+
+    return;
+  }
+
+  if (action.module === "canon-ptz") {
+    const camera = getNode(targetNodeId);
+
+    const direction = STREAM_DECK_PTZ_DIRECTIONS[action.definitionId];
+
+    if (direction) {
+      startStreamDeckPtzMotion(camera, direction);
+      return;
+    }
+
+    if (["stop", "stopPan", "stopTilt"].includes(action.definitionId)) {
+      stopStreamDeckPtzMotion();
+      return;
+    }
+
+    if (action.definitionId === "home" && camera) {
+      recordUndoSnapshot();
+      animatePtzTo(camera, { pan: 0, tilt: 0, zoom: normalizePtzState(camera.ptz).zoom });
+      return;
+    }
+
+    const preset = Number(action.preset);
+
+    if (!Number.isFinite(preset)) {
+      return;
+    }
+
+    if (action.definitionId === "recallPset") {
+      recallCameraPreset(camera, preset);
+    } else if (action.definitionId === "savePset") {
+      saveCameraPreset(camera, preset);
+    }
+  }
+}
+
+// Live feedback → button style, recomputed on every render from the mapped
+// node's current state (tally/bus), mirroring how program_bg/preview_bg and
+// tallyPreview/tallyProgram behave on the real Companion setup.
+function getStreamDeckButtonStyle(node, cell) {
+  let bgcolor = cell.bgcolor;
+  const color = cell.color;
+
+  cell.feedbacks.forEach((feedback) => {
+    const targetNodeId = node.instanceMap?.[feedback.instanceId];
+
+    if (!targetNodeId) {
+      return;
+    }
+
+    let active = false;
+
+    if (feedback.module === "bmd-atem") {
+      const switcher = getNode(targetNodeId);
+      const input = Number(feedback.input);
+
+      if (feedback.definitionId === "program_bg") {
+        active = switcher?.programInput === input;
+      } else if (feedback.definitionId === "preview_bg") {
+        active = switcher?.previewInput === input;
+      }
+    } else if (feedback.module === "canon-ptz") {
+      const camera = getNode(targetNodeId);
+
+      state.nodes.filter((candidate) => candidate.type === "switcher").forEach((switcher) => {
+        if (feedback.definitionId === "tallyProgram" && getSwitcherProgramSource(switcher)?.id === camera?.id) {
+          active = true;
+        }
+
+        if (feedback.definitionId === "tallyPreview" && getSwitcherPreviewSource(switcher)?.id === camera?.id) {
+          active = true;
+        }
+      });
+    }
+
+    if (feedback.isInverted) {
+      active = !active;
+    }
+
+    if (active) {
+      bgcolor = feedback.definitionId.includes("preview") || feedback.definitionId === "tallyPreview"
+        ? "#0ea5e9"
+        : "#ef4444";
+    }
+  });
+
+  return { bgcolor, color };
 }
 
 function renderConnectedMonitorPictures() {
@@ -4503,12 +4997,23 @@ function serializeSetup() {
     nextId: state.nextId,
     zoom: state.zoom,
     activeSwitcherId: state.activeSwitcherId,
-    nodes: state.nodes.map((node) => ({
-      ...node,
-      media: node.media?.url?.startsWith("blob:")
-        ? { kind: "file", label: node.media.label ?? "File", name: node.media.name }
-        : node.media
-    })),
+    // A Stream Deck's imported Companion data can run into megabytes (icons
+    // embedded as base64 per button, across every page) — leaving it out of
+    // undo snapshots and project export/share keeps both fast and small.
+    // The trade-off: undo across an import, or loading a shared project,
+    // requires re-importing the .companionconfig on that node.
+    nodes: state.nodes.map((node) => {
+      // instanceMap/instanceNames are kept: Companion instance ids are stable
+      // (baked into the .companionconfig), so a mapping/name survives even
+      // though companionImport itself has to be dropped and re-imported.
+      const { companionImport, companionRawConfig, companionSurfaceChoices, customVariables, ...rest } = node;
+      return {
+        ...rest,
+        media: node.media?.url?.startsWith("blob:")
+          ? { kind: "file", label: node.media.label ?? "File", name: node.media.name }
+          : node.media
+      };
+    }),
     connections: state.connections
   };
 }
@@ -4947,6 +5452,16 @@ importSetupFile.addEventListener("change", (event) => {
   event.target.value = "";
 });
 
+streamDeckImportFile.addEventListener("change", (event) => {
+  const file = event.target.files?.[0];
+
+  if (file) {
+    handleStreamDeckImportFile(file);
+  }
+
+  event.target.value = "";
+});
+
 document.querySelector("#shareSetup").addEventListener("click", createShareLink);
 
 document.querySelector("#openAboutDialog")?.addEventListener("click", () => {
@@ -5231,6 +5746,41 @@ deviceLayer.addEventListener("click", (event) => {
   if (action === "edit-node") {
     openEditGear(actionTarget.dataset.nodeId);
   }
+
+  if (action === "streamdeck-import") {
+    triggerStreamDeckImport(actionTarget.dataset.nodeId);
+  }
+
+  if (action === "streamdeck-pick-surface") {
+    pickStreamDeckSurface(actionTarget.dataset.nodeId, actionTarget.dataset.surfaceKey);
+  }
+
+  if (action === "streamdeck-page-nav") {
+    navigateStreamDeckPage(actionTarget.dataset.nodeId, actionTarget.dataset.direction);
+  }
+
+  if (action === "streamdeck-map-instances") {
+    toggleStreamDeckMapping(actionTarget.dataset.nodeId, true);
+  }
+
+  if (action === "streamdeck-close-mapping") {
+    toggleStreamDeckMapping(actionTarget.dataset.nodeId, false);
+  }
+});
+
+deviceLayer.addEventListener("change", (event) => {
+  const select = event.target.closest('[data-action="streamdeck-set-mapping"]');
+
+  if (select) {
+    setStreamDeckInstanceMapping(select.dataset.nodeId, select.dataset.instanceId, select.value);
+    return;
+  }
+
+  const nameInput = event.target.closest('[data-action="streamdeck-set-camera-name"]');
+
+  if (nameInput) {
+    setStreamDeckInstanceName(nameInput.dataset.nodeId, nameInput.dataset.instanceId, nameInput.value.trim());
+  }
 });
 
 deviceLayer.addEventListener("dblclick", (event) => {
@@ -5480,6 +6030,13 @@ deviceLayer.addEventListener("pointerdown", (event) => {
     return;
   }
 
+  const streamDeckButton = event.target.closest("[data-action='streamdeck-button']");
+
+  if (streamDeckButton) {
+    startStreamDeckPress(streamDeckButton);
+    return;
+  }
+
   const gainButton = event.target.closest("[data-action='adjust-audio-fader']");
 
   if (gainButton) {
@@ -5613,6 +6170,7 @@ deviceLayer.addEventListener("pointerup", endDrag);
 deviceLayer.addEventListener("pointercancel", endDrag);
 deviceLayer.addEventListener("pointerleave", stopFaderHold);
 deviceLayer.addEventListener("pointerleave", () => stopPtzPresetPress(false));
+deviceLayer.addEventListener("pointerleave", () => stopStreamDeckPress(false));
 document.addEventListener("pointermove", (event) => {
   if (activeDrag?.type === "marquee" && activeDrag.pointerId === event.pointerId) {
     updateMarqueeDrag(event);
@@ -5635,6 +6193,7 @@ document.addEventListener("pointermove", (event) => {
 document.addEventListener("pointerup", (event) => {
   stopFaderHold();
   stopPtzPresetPress(true);
+  stopStreamDeckPress(true);
   endInputGainDrag(event);
   endChannelFaderDrag(event);
   endPtzJoystickDrag(event);
@@ -5643,6 +6202,7 @@ document.addEventListener("pointerup", (event) => {
 document.addEventListener("pointercancel", (event) => {
   stopFaderHold();
   stopPtzPresetPress(false);
+  stopStreamDeckPress(false);
   endInputGainDrag(event);
   endChannelFaderDrag(event);
   endPtzJoystickDrag(event);

@@ -32,6 +32,38 @@
       this.callbacks.render();
     }
 
+    // Direct bus writes for external control surfaces (e.g. an imported Stream
+    // Deck/Companion button) that address program/preview independently of
+    // this app's own PGM/PRV-vs-CUT bus-mode toggle, mirroring how a real ATEM
+    // panel's dedicated PGM/PRV button rows behave regardless of transition style.
+    setProgramInput(switcherId, input) {
+      const switcher = this.getSwitcher(switcherId);
+
+      if (!switcher) {
+        return;
+      }
+
+      this.state.activeSwitcherId = switcher.id;
+      const source = this.callbacks.normalizeSwitcherBusSource(input);
+      const previousProgram = switcher.programInput;
+      switcher.programInput = source;
+      switcher.isFadeToBlackActive = source === "black";
+      this.callbacks.beginAudioFadeForProgramChange(switcher, previousProgram, source);
+      this.callbacks.render();
+    }
+
+    setPreviewInput(switcherId, input) {
+      const switcher = this.getSwitcher(switcherId);
+
+      if (!switcher) {
+        return;
+      }
+
+      this.state.activeSwitcherId = switcher.id;
+      switcher.previewInput = this.callbacks.normalizeSwitcherBusSource(input);
+      this.callbacks.render();
+    }
+
     toggleBusMode(switcherId) {
       const switcher = this.getSwitcher(switcherId);
 

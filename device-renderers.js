@@ -178,6 +178,10 @@
         return this.renderMicrophonePanel(node);
       }
 
+      if (node.type === "streamDeckXL") {
+        return this.renderStreamDeckXLPanel(node);
+      }
+
       return `
         <div class="simple-device-face">${node.title}</div>
         <div class="node-meta">
@@ -414,6 +418,180 @@
           <span>Kondensator · Niere</span>
           <span>${node.outputs.length} Out</span>
         </div>
+      `;
+    }
+
+    renderStreamDeckXLPanel(node) {
+      if (node.companionSurfaceChoices?.length) {
+        return this.renderStreamDeckSurfacePicker(node);
+      }
+
+      if (!node.companionImport) {
+        return this.renderStreamDeckEmptyState(node);
+      }
+
+      if (node.streamDeckMappingOpen) {
+        return this.renderStreamDeckMappingPanel(node);
+      }
+
+      return this.renderStreamDeckGrid(node);
+    }
+
+    renderStreamDeckMappingPanel(node) {
+      const relevantModules = { "bmd-atem": "switcher", "canon-ptz": "camera" };
+      const instances = Object.entries(node.companionImport.instances)
+        .filter(([, instance]) => relevantModules[instance.moduleId]);
+
+      const rows = instances.map(([instanceId, instance]) => {
+        const candidateType = relevantModules[instance.moduleId];
+        const candidates = this.state.nodes.filter((candidate) => candidate.type === candidateType);
+        const currentMappedId = node.instanceMap?.[instanceId] ?? "";
+        const options = [`<option value="">— nicht zugeordnet —</option>`]
+          .concat(candidates.map((candidate) => `
+            <option value="${candidate.id}" ${candidate.id === currentMappedId ? "selected" : ""}>${escapeHtml(candidate.title)}</option>
+          `))
+          .join("");
+
+        const nameField = instance.moduleId === "canon-ptz"
+          ? `<input type="text" class="streamdeck-camera-name-input" data-action="streamdeck-set-camera-name" data-node-id="${node.id}" data-instance-id="${escapeHtml(instanceId)}" value="${escapeHtml(node.instanceNames?.[instanceId] ?? "")}" placeholder="${escapeHtml(this.getDefaultStreamDeckCameraName(instance))}">`
+          : "";
+
+        return `
+          <div class="streamdeck-mapping-row">
+            <span>${escapeHtml(instance.label)} <small>(${escapeHtml(instance.moduleId)})</small></span>
+            ${nameField}
+            <select data-action="streamdeck-set-mapping" data-node-id="${node.id}" data-instance-id="${escapeHtml(instanceId)}">
+              ${options}
+            </select>
+          </div>
+        `;
+      }).join("");
+
+      return `
+        <div class="streamdeck-panel">
+          <div class="streamdeck-toolbar">
+            <span class="streamdeck-page-label">Geräte zuordnen</span>
+            <button class="small-button" type="button" data-action="streamdeck-close-mapping" data-node-id="${node.id}">Fertig</button>
+          </div>
+          <div class="streamdeck-mapping-list">
+            ${rows || "<p>Keine ATEM- oder PTZ-Instanzen in dieser Konfiguration gefunden.</p>"}
+          </div>
+        </div>
+      `;
+    }
+
+    getDefaultStreamDeckCameraName(instance) {
+      return instance.label.match(/\d+$/)?.[0] ?? instance.label;
+    }
+
+    // Companion resolves "$(<instance label>:cameraName)" itself from a name
+    // typed into its own UI, which isn't part of the exported button/page
+    // data — so this substitutes the name the user configured in the mapping
+    // panel (or its "101"/"102"/... default) wherever that token appears.
+    resolveStreamDeckButtonText(node, text) {
+      if (!text || !text.includes("$(")) {
+        return text;
+      }
+
+      return text.replace(/\$\(([^:()]+):cameraName\)/g, (match, label) => {
+        const entry = Object.entries(node.companionImport.instances).find(([, instance]) => instance.label === label);
+
+        if (!entry) {
+          return match;
+        }
+
+        const [instanceId, instance] = entry;
+        return node.instanceNames?.[instanceId] ?? this.getDefaultStreamDeckCameraName(instance);
+      });
+    }
+
+    renderStreamDeckEmptyState(node) {
+      return `
+        <div class="streamdeck-panel streamdeck-empty">
+          <p>Noch keine Companion-Konfiguration importiert.</p>
+          <button class="library-button ${this.state.readOnly ? "is-hidden" : ""}" type="button" data-action="streamdeck-import" data-node-id="${node.id}">.companionconfig importieren</button>
+        </div>
+      `;
+    }
+
+    renderStreamDeckSurfacePicker(node) {
+      const options = node.companionSurfaceChoices.map((surface) => `
+        <button class="streamdeck-surface-option" type="button" data-action="streamdeck-pick-surface" data-node-id="${node.id}" data-surface-key="${escapeHtml(surface.key)}">
+          <strong>${escapeHtml(surface.name)}</strong>
+          <span>${escapeHtml(surface.type)} · ${surface.columns}x${surface.rows}</span>
+        </button>
+      `).join("");
+
+      return `
+        <div class="streamdeck-panel streamdeck-empty">
+          <p>Mehrere Stream-Deck-Surfaces gefunden — welche soll importiert werden?</p>
+          <div class="streamdeck-surface-list">${options}</div>
+        </div>
+      `;
+    }
+
+    renderStreamDeckGrid(node) {
+      const importData = node.companionImport;
+      const pageId = node.currentPageId && importData.pages[node.currentPageId] ? node.currentPageId : importData.startupPageId;
+      const page = importData.pages[pageId];
+
+      if (!page) {
+        return this.renderStreamDeckEmptyState(node);
+      }
+
+      const buttons = page.buttons.map((entry) => this.renderStreamDeckButton(node, entry)).join("");
+      const pageIndex = importData.pageOrder.indexOf(pageId);
+      const pageLabel = `${escapeHtml(page.name)} (${pageIndex + 1}/${importData.pageOrder.length})`;
+
+      return `
+        <div class="streamdeck-panel">
+          <div class="streamdeck-toolbar">
+            <span class="streamdeck-page-label">${pageLabel}</span>
+            <button class="small-button ${this.state.readOnly ? "is-hidden" : ""}" type="button" data-action="streamdeck-map-instances" data-node-id="${node.id}">Geräte zuordnen</button>
+          </div>
+          <div class="streamdeck-grid" style="grid-template-columns: repeat(${importData.columns}, 1fr); grid-template-rows: repeat(${importData.rows}, 1fr);">
+            ${buttons}
+          </div>
+        </div>
+      `;
+    }
+
+    renderStreamDeckButton(node, entry) {
+      const { row, col, cell } = entry;
+
+      if (!cell) {
+        return `<div class="streamdeck-btn streamdeck-btn-empty"></div>`;
+      }
+
+      if (cell.kind === "pagenav") {
+        const arrow = cell.direction === "up" ? "&#9650;" : cell.direction === "down" ? "&#9660;" : "#";
+        return `
+          <button class="streamdeck-btn streamdeck-btn-pagenav" type="button"
+            data-action="streamdeck-page-nav" data-node-id="${node.id}" data-direction="${cell.direction}">
+            ${arrow}
+          </button>
+        `;
+      }
+
+      const style = this.callbacks.getStreamDeckButtonStyle
+        ? this.callbacks.getStreamDeckButtonStyle(node, cell)
+        : { bgcolor: cell.bgcolor, color: cell.color };
+
+      const bg = style.bgcolor ? `background-color: ${style.bgcolor};` : "";
+      const fg = style.color ? `color: ${style.color};` : "";
+      const image = cell.png64
+        ? `<img class="streamdeck-btn-icon" src="data:image/png;base64,${cell.png64}" alt="">`
+        : "";
+      // Companion authors write literal "\n" (backslash-n) in button text as
+      // their own line-break convention, not an actual newline character.
+      const resolvedText = this.resolveStreamDeckButtonText(node, cell.text)?.replace(/\\n/g, "\n");
+      const text = resolvedText ? `<span class="streamdeck-btn-text">${escapeHtml(resolvedText)}</span>` : "";
+
+      return `
+        <button class="streamdeck-btn" type="button" style="${bg}${fg}"
+          data-action="streamdeck-button" data-node-id="${node.id}" data-row="${row}" data-col="${col}">
+          ${image}${text}
+        </button>
       `;
     }
 

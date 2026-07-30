@@ -132,6 +132,19 @@ window.BroadcastDeviceCatalog = (() => {
       outputs: [
         { id: "xlr-out", label: "XLR Out", signal: "XLR", top: 50 }
       ]
+    },
+    streamDeckXL: {
+      type: "streamDeckXL",
+      title: "Elgato Stream Deck XL",
+      kicker: "Control Surface",
+      capabilities: ["control-surface", "companion-import"],
+      width: 460,
+      gridColumns: 8,
+      gridRows: 4,
+      inputs: [],
+      outputs: [
+        { id: "usb-c", label: "USB-C", signal: "USB-C", top: 50 }
+      ]
     }
   };
 
@@ -157,7 +170,8 @@ window.BroadcastDeviceCatalog = (() => {
     ["networkSwitch24", "Netzwerk", "PoE Netzwerk-Switch 24-Port", "24x LAN"],
     ["rodeWirelessGo2Set", "RODE", "Wireless GO II (Set)", "1x Receiver + 2x Transmitter, 3.5mm Mic Out, koppelt drahtlos"],
     ["soundDevicesMixPre3", "Sound Devices", "MixPre-3 II", "3x XLR Mic/Line, Aux In, TC In, Line-/Kopfhörer-Out, USB-C"],
-    ["behringerC2Set", "Behringer", "C-2 Stereoset", "2x Kondensatormikrofon, XLR Out, Niere, paarweise abgeglichen"]
+    ["behringerC2Set", "Behringer", "C-2 Stereoset", "2x Kondensatormikrofon, XLR Out, Niere, paarweise abgeglichen"],
+    ["streamDeckXL", "Elgato", "Stream Deck XL", "8x4 Tasten, USB-C, Companion-Konfiguration importierbar"]
   ];
 
   const legacyGearAliases = {
