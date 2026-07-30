@@ -1331,92 +1331,12 @@ body.is-read-only #openGearLibrary {
   box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.3);
 }
 
-.mic-body {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  width: 56px;
-  height: 164px;
-  border-radius: 14px 14px 0 0;
-  background: linear-gradient(90deg, #7d7a72 0%, #d6d1c6 18%, #f2efe8 38%, #cfcabe 56%, #9d988c 76%, #7d7a72 100%);
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.3), 0 8px 16px rgba(0, 0, 0, 0.45);
-  overflow: hidden;
-}
-
-.mic-cap {
+.mic-illustration {
   width: 100%;
-  height: 20px;
-  margin-top: 0;
-  border-radius: 50%;
-  border: 2px solid #948e80;
-  background:
-    radial-gradient(circle, rgba(0, 0, 0, 0.5) 0.8px, transparent 1px),
-    linear-gradient(90deg, #6b675e, #a29c8d 40%, #d8d2c2 50%, #a29c8d 60%, #6b675e 100%);
-  background-size: 4px 4px, 100% 100%;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), inset 0 -1px 1px rgba(0, 0, 0, 0.35), 0 3px 4px rgba(0, 0, 0, 0.4);
-}
-
-.mic-shaft {
-  position: relative;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  width: 100%;
-  padding-top: 6px;
-}
-
-.mic-model {
-  color: #1c1a17;
-  font-size: 0.82rem;
-  font-weight: 900;
-  letter-spacing: 0.01em;
-}
-
-.mic-pad-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 12px;
-}
-
-.mic-pad-switch {
-  width: 6px;
-  height: 16px;
-  border-radius: 3px;
-  background: linear-gradient(180deg, #2a2a2a, #0a0a0a);
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.4);
-}
-
-.mic-pad-icon {
-  width: 12px;
-  height: 12px;
-  color: #2b2620;
-}
-
-.mic-pad-label {
-  color: #2b2620;
-  font-size: 0.42rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-
-.mic-logo-triangle {
-  width: 22px;
-  height: 20px;
-  margin-top: auto;
-  color: #1c1a17;
-}
-
-.mic-wordmark {
-  margin-top: 3px;
-  margin-bottom: 10px;
-  color: #1c1a17;
-  font-size: 0.56rem;
-  font-weight: 600;
-  font-style: italic;
-  letter-spacing: 0.01em;
+  max-width: 200px;
+  height: auto;
+  display: block;
+  margin: 0 auto;
 }
 
 .switcher-title-face {

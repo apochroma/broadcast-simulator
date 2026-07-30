@@ -348,27 +348,67 @@
     }
 
     renderMicrophonePanel(node) {
+      const uid = node.id;
       return `
         <div class="mic-panel">
-          <div class="mic-body">
-            <div class="mic-cap"></div>
-            <div class="mic-shaft">
-              <div class="mic-model">C-2</div>
-              <div class="mic-pad-row">
-                <div class="mic-pad-switch"></div>
-                <svg class="mic-pad-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
-                  <path d="M2 6 L9 6 L17 15"/>
-                </svg>
-                <span class="mic-pad-label">-10 dB</span>
-              </div>
-              <svg class="mic-logo-triangle" viewBox="0 0 40 36" fill="none">
-                <path d="M20 3 L37 32 L3 32 Z" stroke="currentColor" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round"/>
-                <ellipse cx="19" cy="20" rx="4.4" ry="6.6" transform="rotate(-25 19 20)" fill="currentColor"/>
-                <path d="M11 17 Q20 8 29 18" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" fill="none"/>
-              </svg>
-              <div class="mic-wordmark">behringer</div>
-            </div>
-          </div>
+          <svg class="mic-illustration" viewBox="0 0 190 190" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="micMetal-${uid}" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#6b675e"/>
+                <stop offset="20%" stop-color="#c9c3b4"/>
+                <stop offset="42%" stop-color="#f2efe8"/>
+                <stop offset="60%" stop-color="#cfc9ba"/>
+                <stop offset="80%" stop-color="#8f897b"/>
+                <stop offset="100%" stop-color="#6b675e"/>
+              </linearGradient>
+              <linearGradient id="micShade-${uid}" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stop-color="rgba(255,255,255,0.28)"/>
+                <stop offset="40%" stop-color="rgba(255,255,255,0)"/>
+                <stop offset="100%" stop-color="rgba(0,0,0,0.32)"/>
+              </linearGradient>
+              <radialGradient id="micCapGrad-${uid}" cx="35%" cy="35%" r="75%">
+                <stop offset="0%" stop-color="#dedad0"/>
+                <stop offset="60%" stop-color="#948e80"/>
+                <stop offset="100%" stop-color="#5c584e"/>
+              </radialGradient>
+              <pattern id="micMesh-${uid}" width="6" height="6" patternUnits="userSpaceOnUse">
+                <circle cx="3" cy="3" r="1" fill="rgba(0,0,0,0.55)"/>
+              </pattern>
+              <clipPath id="micClip-${uid}">
+                <rect x="16" y="76" width="158" height="48" rx="12"/>
+              </clipPath>
+            </defs>
+
+            <g transform="rotate(35 95 100)">
+              <rect x="16" y="76" width="158" height="48" rx="12" fill="url(#micMetal-${uid})"/>
+              <rect x="16" y="76" width="158" height="48" rx="12" fill="url(#micShade-${uid})"/>
+
+              <g clip-path="url(#micClip-${uid})">
+                <rect x="16" y="76" width="52" height="48" fill="#131211"/>
+                <g transform="translate(32,82) scale(0.5)">
+                  <path d="M20 3 L37 32 L3 32 Z" fill="none" stroke="#eceae4" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"/>
+                  <ellipse cx="19" cy="20" rx="4.4" ry="6.6" transform="rotate(-25 19 20)" fill="#eceae4"/>
+                  <path d="M11 17 Q20 8 29 18" stroke="#eceae4" stroke-width="2" stroke-linecap="round" fill="none"/>
+                </g>
+                <text x="42" y="116" text-anchor="middle" font-size="6" font-style="italic" font-weight="600" fill="#d8d5cc">behringer</text>
+
+                <rect x="134" y="76" width="40" height="48" fill="url(#micCapGrad-${uid})"/>
+                <rect x="134" y="76" width="40" height="48" fill="url(#micMesh-${uid})"/>
+              </g>
+
+              <rect x="16" y="76" width="158" height="48" rx="12" fill="none" stroke="#4d4a42" stroke-width="1.5"/>
+              <line x1="68" y1="76" x2="68" y2="124" stroke="#3f3c36" stroke-width="1.3"/>
+              <line x1="134" y1="76" x2="134" y2="124" stroke="#3f3c36" stroke-width="1.3"/>
+
+              <rect x="76" y="84" width="5" height="10" rx="2" fill="#141311"/>
+              <path d="M84 83 L90 83 L96 89" fill="none" stroke="#2b2620" stroke-width="1.3" stroke-linecap="round"/>
+              <text x="101" y="96" text-anchor="middle" font-size="6" font-weight="700" fill="#2b2620">-10 dB</text>
+
+              <text x="101" y="116" text-anchor="middle" font-size="15" font-weight="900" fill="#1c1a17">C-2</text>
+
+              <path d="M20 79 Q95 71 170 79" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" clip-path="url(#micClip-${uid})"/>
+            </g>
+          </svg>
         </div>
         <div class="node-meta">
           <span>Kondensator · Niere</span>
