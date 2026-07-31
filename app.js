@@ -3523,6 +3523,28 @@ function stopPtzPresetPress(triggerShortPress = true) {
   }
 }
 
+// "Step Progression" buttons (e.g. one AE-mode button cycling Full Auto →
+// Scene → Manual) advance to the next of cell.actions.steps on every press —
+// tracked here per button (keyed by the cell object itself, since the same
+// row/col repeats across every page) rather than on the node, since it's
+// purely a display/interaction detail that doesn't need to survive a reload.
+const streamDeckButtonStepIndex = new WeakMap();
+
+function getCurrentStreamDeckStep(cell) {
+  const steps = cell.actions.steps;
+  const index = streamDeckButtonStepIndex.get(cell) ?? 0;
+  return steps[index % steps.length];
+}
+
+function advanceStreamDeckStep(cell) {
+  if (cell.actions.steps.length <= 1) {
+    return;
+  }
+
+  const index = streamDeckButtonStepIndex.get(cell) ?? 0;
+  streamDeckButtonStepIndex.set(cell, (index + 1) % cell.actions.steps.length);
+}
+
 // Mirrors the PTZ-preset press pattern above: "down" actions fire immediately,
 // each hold-duration group fires (in place of "release") once held that long
 // — matching Companion's own short-press-vs-hold buttons (e.g. this file's
@@ -3538,12 +3560,13 @@ function startStreamDeckPress(button) {
     return;
   }
 
-  runStreamDeckActions(node, cell.actions.press);
+  const step = getCurrentStreamDeckStep(cell);
+  runStreamDeckActions(node, step.press);
 
-  const context = { nodeId, cell, firedHoldGroup: null };
+  const context = { nodeId, cell, step, firedHoldGroup: null };
   streamDeckPressContext = context;
 
-  streamDeckPressTimers = (cell.actions.holdGroups ?? []).map((group) => window.setTimeout(() => {
+  streamDeckPressTimers = (step.holdGroups ?? []).map((group) => window.setTimeout(() => {
     if (streamDeckPressContext !== context || context.firedHoldGroup) {
       return;
     }
@@ -3551,6 +3574,8 @@ function startStreamDeckPress(button) {
     context.firedHoldGroup = group;
     runStreamDeckActions(getNode(nodeId), group.actions);
   }, group.afterMs));
+
+  advanceStreamDeckStep(cell);
 }
 
 function stopStreamDeckPress(triggerRelease = true) {
@@ -3569,7 +3594,7 @@ function stopStreamDeckPress(triggerRelease = true) {
     const node = getNode(context.nodeId);
 
     if (node) {
-      runStreamDeckActions(node, context.cell.actions.release);
+      runStreamDeckActions(node, context.step.release);
     }
   }
 }
@@ -3887,6 +3912,20 @@ function runStreamDeckAction(node, action) {
         render();
       }
 
+      return;
+    }
+
+    if (action.definitionId === "exposureShootingMode" && camera && action.preset) {
+      recordUndoSnapshot();
+      camera.exposureMode = String(action.preset);
+      render();
+      return;
+    }
+
+    if (action.definitionId === "aePhotometry" && camera && action.preset) {
+      recordUndoSnapshot();
+      camera.meteringMode = String(action.preset);
+      render();
       return;
     }
 

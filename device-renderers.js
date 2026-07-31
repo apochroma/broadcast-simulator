@@ -1,4 +1,7 @@
 (function () {
+  const STREAM_DECK_EXPOSURE_MODE_LABELS = { fullauto: "Full Auto", manual: "Manual", scene: "Scene" };
+  const STREAM_DECK_METERING_MODE_LABELS = { center: "Center", spotlight: "Spotlight", backlight: "Backlight" };
+
   class DeviceRenderer {
     constructor({ callbacks, config, state }) {
       this.callbacks = callbacks;
@@ -484,16 +487,19 @@
       return instance.label.match(/\d+$/)?.[0] ?? instance.label;
     }
 
-    // Companion resolves "$(<instance label>:cameraName)" itself from a name
-    // typed into its own UI, which isn't part of the exported button/page
-    // data — so this substitutes the name the user configured in the mapping
-    // panel (or its "101"/"102"/... default) wherever that token appears.
+    // Companion resolves these itself from the live camera connection / its
+    // own UI — none of that is part of the exported button/page data, so we
+    // substitute what we can from our own state wherever the tokens appear:
+    // "cameraName" from the mapping panel's name field (or its "101"/"102"/…
+    // default), "exposureShootingMode"/"aePhotometry" from the mapped
+    // camera's own simulated AE mode/metering state (defaulting to what a
+    // freshly-started camera would report if nothing was mapped yet).
     resolveStreamDeckButtonText(node, text) {
       if (!text || !text.includes("$(")) {
         return text;
       }
 
-      return text.replace(/\$\(([^:()]+):cameraName\)/g, (match, label) => {
+      return text.replace(/\$\(([^:()]+):(cameraName|exposureShootingMode|aePhotometry)\)/g, (match, label, field) => {
         const entry = Object.entries(node.companionImport.instances).find(([, instance]) => instance.label === label);
 
         if (!entry) {
@@ -501,7 +507,20 @@
         }
 
         const [instanceId, instance] = entry;
-        return node.instanceNames?.[instanceId] ?? this.getDefaultStreamDeckCameraName(instance);
+
+        if (field === "cameraName") {
+          return node.instanceNames?.[instanceId] ?? this.getDefaultStreamDeckCameraName(instance);
+        }
+
+        const camera = this.state.nodes.find((candidate) => candidate.id === node.instanceMap?.[instanceId]);
+
+        if (field === "exposureShootingMode") {
+          const mode = camera?.exposureMode ?? "fullauto";
+          return STREAM_DECK_EXPOSURE_MODE_LABELS[mode] ?? mode;
+        }
+
+        const metering = camera?.meteringMode ?? "center";
+        return STREAM_DECK_METERING_MODE_LABELS[metering] ?? metering;
       });
     }
 

@@ -5,7 +5,7 @@
       "recallPset", "savePset",
       "up", "down", "left", "right", "upLeft", "upRight", "downLeft", "downRight",
       "home", "stop", "stopPan", "stopTilt",
-      "aeBrightness"
+      "aeBrightness", "exposureShootingMode", "aePhotometry"
     ]),
     internal: new Set(["set_page", "custom_variable_set_value"])
   };
@@ -95,8 +95,8 @@
   // long-press behavior (e.g. "release after 1000ms") adds extra numeric-ms
   // keys instead — those fire in place of "up" once held that long, mirroring
   // this app's existing PTZ-preset long-press pattern.
-  function normalizeButtonActions(rawConfig, control) {
-    const actionSets = control.steps?.["0"]?.action_sets ?? {};
+  function normalizeStep(rawConfig, stepData) {
+    const actionSets = stepData?.action_sets ?? {};
 
     const press = [];
     normalizeActionsList(rawConfig, actionSets.down, press);
@@ -115,6 +115,20 @@
       });
 
     return { press, release, holdGroups };
+  }
+
+  // "Step Progression" buttons (e.g. a single AE-mode button cycling
+  // Full Auto → Scene → Manual on repeated presses) store one action set per
+  // step under control.steps["0"], ["1"], ["2"], ... — each press uses the
+  // next step in order (wrapping around), tracked at runtime per button.
+  function normalizeButtonActions(rawConfig, control) {
+    const stepKeys = Object.keys(control.steps ?? {}).sort((a, b) => Number(a) - Number(b));
+
+    if (!stepKeys.length) {
+      return { steps: [{ press: [], release: [], holdGroups: [] }] };
+    }
+
+    return { steps: stepKeys.map((key) => normalizeStep(rawConfig, control.steps[key])) };
   }
 
   function normalizeButtonFeedbacks(rawConfig, control) {
@@ -156,11 +170,11 @@
   }
 
   function isCameraPageShortcutButton(actions) {
-    const allActions = [
-      ...actions.press,
-      ...actions.release,
-      ...actions.holdGroups.flatMap((group) => group.actions)
-    ];
+    const allActions = actions.steps.flatMap((step) => [
+      ...step.press,
+      ...step.release,
+      ...step.holdGroups.flatMap((group) => group.actions)
+    ]);
 
     return allActions.some(isCameraPageShortcutAction);
   }
