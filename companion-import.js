@@ -4,7 +4,8 @@
     "canon-ptz": new Set([
       "recallPset", "savePset",
       "up", "down", "left", "right", "upLeft", "upRight", "downLeft", "downRight",
-      "home", "stop", "stopPan", "stopTilt"
+      "home", "stop", "stopPan", "stopTilt",
+      "aeBrightness"
     ]),
     internal: new Set(["set_page", "custom_variable_set_value"])
   };

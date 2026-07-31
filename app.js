@@ -307,6 +307,40 @@ function addBehringerC2Set() {
   render();
 }
 
+const DEFAULT_STREAM_DECK_CONFIG_PATH = "assets/Q2X9Y7JKVT_2026-07-30-1740_custom_config.companionconfig";
+
+// New Stream Deck XL nodes start pre-loaded with this project's reference
+// Companion export, instead of the empty "import a file" state — the "Load
+// Configuration" button in the node's toolbar still lets a different file be
+// swapped in later.
+function addStreamDeckXLWithDefaultConfig() {
+  if (state.readOnly) {
+    return;
+  }
+
+  addGear("streamDeckXL");
+  const node = state.nodes.at(-1);
+  autoImportDefaultStreamDeckConfig(node.id);
+}
+
+async function autoImportDefaultStreamDeckConfig(nodeId) {
+  try {
+    const response = await fetch(DEFAULT_STREAM_DECK_CONFIG_PATH);
+
+    if (!response.ok) {
+      return;
+    }
+
+    const blob = await response.blob();
+    const file = new File([blob], DEFAULT_STREAM_DECK_CONFIG_PATH.split("/").pop(), { type: "application/octet-stream" });
+    pendingStreamDeckImportNodeId = nodeId;
+    await handleStreamDeckImportFile(file);
+  } catch (error) {
+    // No default file reachable (e.g. different deployment) — the node just
+    // stays in its normal empty state with the manual import button.
+  }
+}
+
 function getSpawnPosition(type, countOfType, width = 280) {
   const viewportOrigin = {
     x: workspaceViewport.scrollLeft / state.zoom,
@@ -2205,6 +2239,10 @@ function isPtzPanoramaSource(source) {
 function renderPtzPanoramaPicture(source) {
   const ptz = normalizePtzState(source.ptz);
   const zoom = clamp(Number(ptz.zoom ?? 1.7), 1.1, 3.2);
+  // Each EV stop doubles/halves light, so brightness() gets a 2^EV multiplier
+  // — a photometrically-reasonable stand-in for a real exposure/aperture change.
+  const exposureEV = clamp(Number(source.exposureEV ?? 0), -1.5, 1.5);
+  const brightnessFilter = exposureEV !== 0 ? ` style="filter: brightness(${2 ** exposureEV});"` : "";
 
   return `
     <div class="ptz-panorama-view">
@@ -2212,7 +2250,7 @@ function renderPtzPanoramaPicture(source) {
         data-source-id="${source.id}"
         data-pan="${ptz.pan}"
         data-tilt="${ptz.tilt}"
-        data-zoom="${zoom}"></canvas>
+        data-zoom="${zoom}"${brightnessFilter}></canvas>
       <span>${source.shortName ?? source.title}</span>
     </div>
   `;
@@ -3838,6 +3876,20 @@ function runStreamDeckAction(node, action) {
       return;
     }
 
+    // canon-ptz sends EV in quarter-stops via the same "val" option preset
+    // recall/save use (e.g. 6 = +1.5EV, -2 = -0.5EV) — divide by 4 to get EV.
+    if (action.definitionId === "aeBrightness" && camera) {
+      const quarterStops = Number(action.preset);
+
+      if (Number.isFinite(quarterStops)) {
+        recordUndoSnapshot();
+        camera.exposureEV = clamp(quarterStops / 4, -1.5, 1.5);
+        render();
+      }
+
+      return;
+    }
+
     const preset = Number(action.preset);
 
     if (!Number.isFinite(preset)) {
@@ -5420,6 +5472,8 @@ gearList.addEventListener("click", (event) => {
     addRodeWirelessSet();
   } else if (button.dataset.addGear === "behringerC2Set") {
     addBehringerC2Set();
+  } else if (button.dataset.addGear === "streamDeckXL") {
+    addStreamDeckXLWithDefaultConfig();
   } else {
     addGear(button.dataset.addGear);
   }

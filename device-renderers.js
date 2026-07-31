@@ -547,7 +547,10 @@
         <div class="streamdeck-panel">
           <div class="streamdeck-toolbar">
             <span class="streamdeck-page-label">${pageLabel}</span>
-            <button class="small-button ${this.state.readOnly ? "is-hidden" : ""}" type="button" data-action="streamdeck-map-instances" data-node-id="${node.id}">Geräte zuordnen</button>
+            <div class="streamdeck-toolbar-actions ${this.state.readOnly ? "is-hidden" : ""}">
+              <button class="small-button" type="button" data-action="streamdeck-import" data-node-id="${node.id}">Load Configuration</button>
+              <button class="small-button" type="button" data-action="streamdeck-map-instances" data-node-id="${node.id}">Geräte zuordnen</button>
+            </div>
           </div>
           <div class="streamdeck-grid" style="grid-template-columns: repeat(${importData.columns}, 1fr); grid-template-rows: repeat(${importData.rows}, 1fr);">
             ${buttons}

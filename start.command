@@ -2,7 +2,7 @@
 
 cd "$(dirname "$0")" || exit 1
 
-PORT=8000
+PORT=9000
 URL="http://localhost:${PORT}/"
 
 if ! command -v python3 > /dev/null; then

@@ -1494,6 +1494,12 @@ body.is-read-only #openGearLibrary {
   gap: 8px;
 }
 
+.streamdeck-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .streamdeck-page-label {
   color: var(--muted);
   font-size: 0.76rem;
