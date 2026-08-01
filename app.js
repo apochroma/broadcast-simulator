@@ -2236,13 +2236,78 @@ function isPtzPanoramaSource(source) {
     || /panorama|equirect|360/i.test(source.media.name ?? "");
 }
 
+// A higher white-balance Kelvin *setting* tells the camera "the light is
+// cool, warm the image up" (and vice versa) — the standard, slightly
+// counter-intuitive camera convention where the WB value is a correction,
+// not the tint itself. sepia() alone leans warm; sepia() + hue-rotate(180deg)
+// flips that same warmth into a cool/blue tint — a common lightweight CSS
+// stand-in for a real white-balance shift, not a physical blackbody model.
+const STREAM_DECK_KELVIN_NEUTRAL = 5600;
+
+function getStreamDeckKelvinFilterCss(kelvinValue) {
+  if (kelvinValue === STREAM_DECK_KELVIN_NEUTRAL) {
+    return "";
+  }
+
+  if (kelvinValue > STREAM_DECK_KELVIN_NEUTRAL) {
+    const warmth = clamp((kelvinValue - STREAM_DECK_KELVIN_NEUTRAL) / (15000 - STREAM_DECK_KELVIN_NEUTRAL), 0, 1);
+    return `sepia(${Math.round(warmth * 60)}%)`;
+  }
+
+  const coolness = clamp((STREAM_DECK_KELVIN_NEUTRAL - kelvinValue) / (STREAM_DECK_KELVIN_NEUTRAL - 2000), 0, 1);
+  return `sepia(${Math.round(coolness * 60)}%) hue-rotate(180deg)`;
+}
+
+// The Kelvin dial only actually affects the image once white balance mode is
+// set to "kelvin" — on a real camera "auto"/"manual"/"wb_a"/"wb_b" ignore it.
+// "tungsten"/"daylight" are fixed presets, approximated here with reference
+// Kelvin values so they still visibly tint even though the camera doesn't
+// expose their exact target temperature over the protocol.
+const STREAM_DECK_TUNGSTEN_REFERENCE_KELVIN = 3200;
+
+function getStreamDeckEffectiveKelvin(source) {
+  const mode = source.whitebalanceMode ?? "auto";
+
+  if (mode === "kelvin" && source.kelvinStepIndex !== undefined) {
+    const kelvinIndex = clamp(Number(source.kelvinStepIndex), 0, STREAM_DECK_KELVIN_LIST.length - 1);
+    return STREAM_DECK_KELVIN_LIST[kelvinIndex];
+  }
+
+  if (mode === "tungsten") {
+    return STREAM_DECK_TUNGSTEN_REFERENCE_KELVIN;
+  }
+
+  if (mode === "daylight") {
+    return STREAM_DECK_KELVIN_NEUTRAL;
+  }
+
+  return null;
+}
+
 function renderPtzPanoramaPicture(source) {
   const ptz = normalizePtzState(source.ptz);
   const zoom = clamp(Number(ptz.zoom ?? 1.7), 1.1, 3.2);
+
+  const filters = [];
+
   // Each EV stop doubles/halves light, so brightness() gets a 2^EV multiplier
   // — a photometrically-reasonable stand-in for a real exposure/aperture change.
   const exposureEV = clamp(Number(source.exposureEV ?? 0), -1.5, 1.5);
-  const brightnessFilter = exposureEV !== 0 ? ` style="filter: brightness(${2 ** exposureEV});"` : "";
+  if (exposureEV !== 0) {
+    filters.push(`brightness(${2 ** exposureEV})`);
+  }
+
+  const effectiveKelvin = getStreamDeckEffectiveKelvin(source);
+
+  if (effectiveKelvin !== null) {
+    const kelvinFilter = getStreamDeckKelvinFilterCss(effectiveKelvin);
+
+    if (kelvinFilter) {
+      filters.push(kelvinFilter);
+    }
+  }
+
+  const filterStyle = filters.length ? ` style="filter: ${filters.join(" ")};"` : "";
 
   return `
     <div class="ptz-panorama-view">
@@ -2250,7 +2315,7 @@ function renderPtzPanoramaPicture(source) {
         data-source-id="${source.id}"
         data-pan="${ptz.pan}"
         data-tilt="${ptz.tilt}"
-        data-zoom="${zoom}"${brightnessFilter}></canvas>
+        data-zoom="${zoom}"${filterStyle}></canvas>
       <span>${source.shortName ?? source.title}</span>
     </div>
   `;
@@ -3012,6 +3077,9 @@ deviceRenderer = new BroadcastDeviceRenderers.DeviceRenderer({
     getMonitorLabel,
     getPtzControlledCamera,
     getStreamDeckButtonStyle,
+    getStreamDeckIrisLabel,
+    getStreamDeckShutterLabel,
+    getStreamDeckKelvinLabel,
     getSwitcherBusMode,
     getSwitcherPreviewSource,
     getSwitcherProgramSource,
@@ -3315,6 +3383,60 @@ const STREAM_DECK_PTZ_DIRECTIONS = {
   downLeft: { x: -1, y: 1 },
   downRight: { x: 1, y: 1 }
 };
+
+// Discrete step tables for the Iris/Shutter Up/Down buttons — real cameras
+// step through fixed f-stops/shutter speeds rather than a linear scale, so
+// we track an index into these instead of a raw number. "Up" moves toward
+// the brighter end (wider aperture / slower shutter) for both, matching how
+// "Gain Up" also means brighter — consistent across all three exposure controls.
+// Iris: 1/3-stop sequence F1.8–F11 (per Canon XC Control Protocol Specs — the
+// exact list is zoom-dependent in the real protocol, which is out of scope
+// for this simulation, so this fixed range stands in for it). Shutter: the
+// camera's own shutter-speed list (denominator of 1/x seconds).
+const STREAM_DECK_IRIS_LABELS = ["F1.8", "F2.0", "F2.2", "F2.4", "F2.8", "F3.2", "F3.5", "F4.0", "F4.5", "F5.0", "F5.6", "F6.3", "F7.1", "F8.0", "F9.0", "F10", "F11"];
+const STREAM_DECK_IRIS_DEFAULT_INDEX = 10;
+const STREAM_DECK_SHUTTER_LABELS = ["1/60", "1/75", "1/90", "1/100", "1/120", "1/150", "1/180", "1/210", "1/250", "1/300", "1/360", "1/420", "1/500", "1/600", "1/720", "1/840", "1/1000", "1/1200", "1/1400", "1/1700", "1/2000"];
+const STREAM_DECK_SHUTTER_DEFAULT_INDEX = 0;
+
+function getStreamDeckIrisLabel(camera) {
+  const index = clamp(Number(camera?.irisStepIndex ?? STREAM_DECK_IRIS_DEFAULT_INDEX), 0, STREAM_DECK_IRIS_LABELS.length - 1);
+  return STREAM_DECK_IRIS_LABELS[index];
+}
+
+function getStreamDeckShutterLabel(camera) {
+  const index = clamp(Number(camera?.shutterStepIndex ?? STREAM_DECK_SHUTTER_DEFAULT_INDEX), 0, STREAM_DECK_SHUTTER_LABELS.length - 1);
+  return STREAM_DECK_SHUTTER_LABELS[index];
+}
+
+// Color temperature (K) list per Canon XC Control Protocol Specs
+// (c.1.wb.kelvin.list) — non-linear, denser toward the warm end.
+const STREAM_DECK_KELVIN_LIST = [
+  2000, 2020, 2040, 2060, 2080, 2110, 2130, 2150, 2170, 2200, 2220, 2250, 2270, 2300, 2330, 2350, 2380, 2410, 2440,
+  2470, 2500, 2530, 2560, 2600, 2630, 2670, 2700, 2740, 2780, 2820, 2860, 2900, 2940, 2990, 3030, 3080, 3130, 3200,
+  3230, 3280, 3330, 3390, 3450, 3510, 3570, 3640, 3700, 3770, 3850, 3920, 4000, 4080, 4170, 4300, 4350, 4440, 4550,
+  4650, 4760, 4880, 5000, 5130, 5260, 5410, 5600, 5710, 5880, 6060, 6300, 6450, 6670, 6900, 7140, 7410, 7690, 8000,
+  8330, 8700, 9090, 9520, 10000, 10530, 11110, 11760, 12500, 13330, 14290, 15000
+];
+const STREAM_DECK_KELVIN_DEFAULT_INDEX = STREAM_DECK_KELVIN_LIST.indexOf(4760);
+
+function getStreamDeckKelvinLabel(camera) {
+  const index = clamp(Number(camera?.kelvinStepIndex ?? STREAM_DECK_KELVIN_DEFAULT_INDEX), 0, STREAM_DECK_KELVIN_LIST.length - 1);
+  return `${STREAM_DECK_KELVIN_LIST[index]}K`;
+}
+
+// "whitebalanceModeToggle" has no options — the real camera cycles through
+// its own mode list internally on each press, so we track the same fixed
+// order ourselves (per Canon XC Control Protocol Specs' c.1.wb.list).
+const STREAM_DECK_WB_MODES = ["auto", "manual", "kelvin", "daylight", "tungsten", "wb_a", "wb_b"];
+
+// ptSpeedU/ptSpeedD carry no options — the real protocol exposes a
+// continuous pan/tilt speed ratio (1–1000, zoom-dependent), which is too
+// granular to be meaningful as a Stream Deck Up/Down stepper, so this
+// simplifies it to a plain 1–24 level (matches common PTZ speed-level
+// conventions) rather than modeling the exact ratio.
+const STREAM_DECK_PT_SPEED_MIN = 1;
+const STREAM_DECK_PT_SPEED_MAX = 24;
+const STREAM_DECK_PT_SPEED_DEFAULT = 12;
 
 function getPtzControlledCamera(controller) {
   const cameraNumber = Number(controller?.selectedCamera ?? 1);
@@ -3925,6 +4047,99 @@ function runStreamDeckAction(node, action) {
     if (action.definitionId === "aePhotometry" && camera && action.preset) {
       recordUndoSnapshot();
       camera.meteringMode = String(action.preset);
+      render();
+      return;
+    }
+
+    if ((action.definitionId === "gainU" || action.definitionId === "gainD") && camera) {
+      recordUndoSnapshot();
+      const step = action.definitionId === "gainU" ? 1 : -1;
+      camera.gainDb = clamp(Number(camera.gainDb ?? 0) + step, 0, 36);
+      render();
+      return;
+    }
+
+    if (action.definitionId === "gainToggle" && camera) {
+      recordUndoSnapshot();
+      camera.gainMode = camera.gainMode === "manual" ? "auto" : "manual";
+      render();
+      return;
+    }
+
+    if (action.definitionId === "irisM" && camera) {
+      recordUndoSnapshot();
+      camera.irisMode = camera.irisMode === "manual" ? "auto" : "manual";
+      render();
+      return;
+    }
+
+    if (action.definitionId === "shutterToggle" && camera) {
+      recordUndoSnapshot();
+      camera.shutterMode = camera.shutterMode === "manual" ? "auto" : "manual";
+      render();
+      return;
+    }
+
+    if (action.definitionId === "focusToggle" && camera) {
+      recordUndoSnapshot();
+      camera.focusMode = camera.focusMode === "manual" ? "auto" : "manual";
+      render();
+      return;
+    }
+
+    if ((action.definitionId === "kelvinUp" || action.definitionId === "kelvinDown") && camera) {
+      recordUndoSnapshot();
+      const current = clamp(Number(camera.kelvinStepIndex ?? STREAM_DECK_KELVIN_DEFAULT_INDEX), 0, STREAM_DECK_KELVIN_LIST.length - 1);
+      const step = action.definitionId === "kelvinUp" ? 1 : -1;
+      camera.kelvinStepIndex = clamp(current + step, 0, STREAM_DECK_KELVIN_LIST.length - 1);
+      render();
+      return;
+    }
+
+    if (action.definitionId === "aeFlickerReduct" && camera && action.preset) {
+      recordUndoSnapshot();
+      camera.flickerReduction = String(action.preset);
+      render();
+      return;
+    }
+
+    if (action.definitionId === "whitebalanceModeToggle" && camera) {
+      recordUndoSnapshot();
+      const currentIndex = STREAM_DECK_WB_MODES.indexOf(camera.whitebalanceMode ?? "auto");
+      camera.whitebalanceMode = STREAM_DECK_WB_MODES[(currentIndex + 1) % STREAM_DECK_WB_MODES.length];
+      render();
+      return;
+    }
+
+    if ((action.definitionId === "ptSpeedU" || action.definitionId === "ptSpeedD") && camera) {
+      recordUndoSnapshot();
+      const step = action.definitionId === "ptSpeedU" ? 1 : -1;
+      camera.panTiltSpeedLevel = clamp(Number(camera.panTiltSpeedLevel ?? STREAM_DECK_PT_SPEED_DEFAULT) + step, STREAM_DECK_PT_SPEED_MIN, STREAM_DECK_PT_SPEED_MAX);
+      render();
+      return;
+    }
+
+    if (action.definitionId === "digitalZoom" && camera && action.bol !== undefined) {
+      recordUndoSnapshot();
+      camera.digitalZoomEnabled = Number(action.bol) === 1;
+      render();
+      return;
+    }
+
+    if ((action.definitionId === "irisU" || action.definitionId === "irisD") && camera) {
+      recordUndoSnapshot();
+      const current = clamp(Number(camera.irisStepIndex ?? STREAM_DECK_IRIS_DEFAULT_INDEX), 0, STREAM_DECK_IRIS_LABELS.length - 1);
+      const step = action.definitionId === "irisU" ? -1 : 1;
+      camera.irisStepIndex = clamp(current + step, 0, STREAM_DECK_IRIS_LABELS.length - 1);
+      render();
+      return;
+    }
+
+    if ((action.definitionId === "shutterUp" || action.definitionId === "shutterDown") && camera) {
+      recordUndoSnapshot();
+      const current = clamp(Number(camera.shutterStepIndex ?? STREAM_DECK_SHUTTER_DEFAULT_INDEX), 0, STREAM_DECK_SHUTTER_LABELS.length - 1);
+      const step = action.definitionId === "shutterUp" ? -1 : 1;
+      camera.shutterStepIndex = clamp(current + step, 0, STREAM_DECK_SHUTTER_LABELS.length - 1);
       render();
       return;
     }

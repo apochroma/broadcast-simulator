@@ -5,7 +5,13 @@
       "recallPset", "savePset",
       "up", "down", "left", "right", "upLeft", "upRight", "downLeft", "downRight",
       "home", "stop", "stopPan", "stopTilt",
-      "aeBrightness", "exposureShootingMode", "aePhotometry"
+      "aeBrightness", "exposureShootingMode", "aePhotometry",
+      "gainU", "gainD", "gainToggle",
+      "irisU", "irisD", "irisM",
+      "shutterUp", "shutterDown", "shutterToggle",
+      "focusToggle", "kelvinUp", "kelvinDown", "aeFlickerReduct",
+      "whitebalanceModeToggle",
+      "ptSpeedU", "ptSpeedD", "digitalZoom"
     ]),
     internal: new Set(["set_page", "custom_variable_set_value"])
   };
@@ -81,7 +87,8 @@
           definitionId,
           mixeffect: Number(options.mixeffect?.value ?? 0),
           input: options.input?.value,
-          preset: options.val?.value
+          preset: options.val?.value,
+          bol: options.bol?.value
         });
       }
 

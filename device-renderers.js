@@ -1,6 +1,9 @@
 (function () {
   const STREAM_DECK_EXPOSURE_MODE_LABELS = { fullauto: "Full Auto", manual: "Manual", scene: "Scene" };
   const STREAM_DECK_METERING_MODE_LABELS = { center: "Center", spotlight: "Spotlight", backlight: "Backlight" };
+  const STREAM_DECK_TOGGLE_MODE_LABELS = { auto: "Auto", manual: "Manual" };
+  const STREAM_DECK_FLICKER_LABELS = { auto: "Auto", off: "Off" };
+  const STREAM_DECK_WB_MODE_LABELS = { auto: "Auto", manual: "Manual", kelvin: "Kelvin", daylight: "Daylight", tungsten: "Tungsten", wb_a: "WB A", wb_b: "WB B" };
 
   class DeviceRenderer {
     constructor({ callbacks, config, state }) {
@@ -499,29 +502,82 @@
         return text;
       }
 
-      return text.replace(/\$\(([^:()]+):(cameraName|exposureShootingMode|aePhotometry)\)/g, (match, label, field) => {
-        const entry = Object.entries(node.companionImport.instances).find(([, instance]) => instance.label === label);
+      return text.replace(
+        /\$\(([^:()]+):(cameraName|exposureShootingMode|aePhotometry|gainValue|gainMode|irisValue|irisMode|shutterValue|shutterMode|autoFocusMode|kelvinValue|aeFlickerReduct|whitebalanceMode|panTiltSpeedValue|digitalZoom)\)/g,
+        (match, label, field) => {
+          const entry = Object.entries(node.companionImport.instances).find(([, instance]) => instance.label === label);
 
-        if (!entry) {
-          return match;
+          if (!entry) {
+            return match;
+          }
+
+          const [instanceId, instance] = entry;
+
+          if (field === "cameraName") {
+            return node.instanceNames?.[instanceId] ?? this.getDefaultStreamDeckCameraName(instance);
+          }
+
+          const camera = this.state.nodes.find((candidate) => candidate.id === node.instanceMap?.[instanceId]);
+
+          if (field === "exposureShootingMode") {
+            const mode = camera?.exposureMode ?? "fullauto";
+            return STREAM_DECK_EXPOSURE_MODE_LABELS[mode] ?? mode;
+          }
+
+          if (field === "aePhotometry") {
+            const metering = camera?.meteringMode ?? "center";
+            return STREAM_DECK_METERING_MODE_LABELS[metering] ?? metering;
+          }
+
+          if (field === "gainValue") {
+            return `${Number(camera?.gainDb ?? 0).toFixed(1)} dB`;
+          }
+
+          if (field === "gainMode") {
+            return STREAM_DECK_TOGGLE_MODE_LABELS[camera?.gainMode ?? "auto"] ?? camera?.gainMode;
+          }
+
+          if (field === "irisMode") {
+            return STREAM_DECK_TOGGLE_MODE_LABELS[camera?.irisMode ?? "auto"] ?? camera?.irisMode;
+          }
+
+          if (field === "shutterMode") {
+            return STREAM_DECK_TOGGLE_MODE_LABELS[camera?.shutterMode ?? "auto"] ?? camera?.shutterMode;
+          }
+
+          if (field === "irisValue") {
+            return this.callbacks.getStreamDeckIrisLabel?.(camera) ?? "F5.6";
+          }
+
+          if (field === "shutterValue") {
+            return this.callbacks.getStreamDeckShutterLabel?.(camera) ?? "1/60";
+          }
+
+          if (field === "autoFocusMode") {
+            return STREAM_DECK_TOGGLE_MODE_LABELS[camera?.focusMode ?? "auto"] ?? camera?.focusMode;
+          }
+
+          if (field === "kelvinValue") {
+            return this.callbacks.getStreamDeckKelvinLabel?.(camera) ?? "4760K";
+          }
+
+          if (field === "aeFlickerReduct") {
+            const flicker = camera?.flickerReduction ?? "auto";
+            return STREAM_DECK_FLICKER_LABELS[flicker] ?? flicker;
+          }
+
+          if (field === "whitebalanceMode") {
+            const wbMode = camera?.whitebalanceMode ?? "auto";
+            return STREAM_DECK_WB_MODE_LABELS[wbMode] ?? wbMode;
+          }
+
+          if (field === "panTiltSpeedValue") {
+            return String(camera?.panTiltSpeedLevel ?? 12);
+          }
+
+          return camera?.digitalZoomEnabled ? "ON" : "OFF";
         }
-
-        const [instanceId, instance] = entry;
-
-        if (field === "cameraName") {
-          return node.instanceNames?.[instanceId] ?? this.getDefaultStreamDeckCameraName(instance);
-        }
-
-        const camera = this.state.nodes.find((candidate) => candidate.id === node.instanceMap?.[instanceId]);
-
-        if (field === "exposureShootingMode") {
-          const mode = camera?.exposureMode ?? "fullauto";
-          return STREAM_DECK_EXPOSURE_MODE_LABELS[mode] ?? mode;
-        }
-
-        const metering = camera?.meteringMode ?? "center";
-        return STREAM_DECK_METERING_MODE_LABELS[metering] ?? metering;
-      });
+      );
     }
 
     renderStreamDeckEmptyState(node) {
