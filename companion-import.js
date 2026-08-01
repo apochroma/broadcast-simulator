@@ -11,7 +11,8 @@
       "shutterUp", "shutterDown", "shutterToggle",
       "focusToggle", "kelvinUp", "kelvinDown", "aeFlickerReduct",
       "whitebalanceModeToggle",
-      "ptSpeedU", "ptSpeedD", "digitalZoom"
+      "ptSpeedU", "ptSpeedD", "digitalZoom", "zSpeedS",
+      "zoomI", "zoomO", "zoomS"
     ]),
     internal: new Set(["set_page", "custom_variable_set_value"])
   };
@@ -88,7 +89,8 @@
           mixeffect: Number(options.mixeffect?.value ?? 0),
           input: options.input?.value,
           preset: options.val?.value,
-          bol: options.bol?.value
+          bol: options.bol?.value,
+          speed: options.speed?.value
         });
       }
 

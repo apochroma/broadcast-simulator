@@ -307,7 +307,7 @@ function addBehringerC2Set() {
   render();
 }
 
-const DEFAULT_STREAM_DECK_CONFIG_PATH = "assets/Q2X9Y7JKVT_2026-07-30-1740_custom_config.companionconfig";
+const DEFAULT_STREAM_DECK_CONFIG_PATH = "configuration/streamdeck.companionconfig";
 
 // New Stream Deck XL nodes start pre-loaded with this project's reference
 // Companion export, instead of the empty "import a file" state — the "Load
@@ -2285,8 +2285,9 @@ function getStreamDeckEffectiveKelvin(source) {
 }
 
 function renderPtzPanoramaPicture(source) {
-  const ptz = normalizePtzState(source.ptz);
-  const zoom = clamp(Number(ptz.zoom ?? 1.7), 1.1, 3.2);
+  const maxZoom = getStreamDeckMaxZoom(source);
+  const ptz = normalizePtzState(source.ptz, maxZoom);
+  const zoom = clamp(Number(ptz.zoom ?? 1.7), 1.1, maxZoom);
 
   const filters = [];
 
@@ -3320,17 +3321,41 @@ function moveSelectedPtzCamera(controller, x, y, zoomDirection = 0, elapsed = 1 
   movePtzCameraByVector(camera, x, y, zoomDirection, elapsed);
 }
 
+// PT Speed / Zoom Speed (set via the Stream Deck's canon-ptz actions) scale
+// motion here rather than in the callers, so both control paths that already
+// share this function — the SKAARHOJ joystick drag (moveSelectedPtzCamera)
+// and the Stream Deck direction-button hold (tickStreamDeckPtzMotion) — pick
+// up the effect automatically, with no separate wiring needed per caller.
+function getStreamDeckPanTiltSpeedMultiplier(camera) {
+  const level = clamp(Number(camera?.panTiltSpeedLevel ?? STREAM_DECK_PT_SPEED_DEFAULT), STREAM_DECK_PT_SPEED_MIN, STREAM_DECK_PT_SPEED_MAX);
+  return level / STREAM_DECK_PT_SPEED_DEFAULT;
+}
+
+function getStreamDeckZoomSpeedMultiplier(camera) {
+  if (camera?.zoomSpeedValue === undefined) {
+    return 1;
+  }
+
+  // A floor keeps "LOW" (protocol value 0) from fully freezing zoom — it's
+  // meant to read as "very slow", not "broken".
+  const value = clamp(Number(camera.zoomSpeedValue), 0, 127);
+  return Math.max(value, 8) / 64;
+}
+
 function movePtzCameraByVector(camera, x, y, zoomDirection = 0, elapsed = 1 / 60) {
-  const current = normalizePtzState(camera.ptz);
-  const panVelocity = Math.sign(x) * Math.pow(Math.abs(x), 1.35) * 82;
-  const tiltVelocity = Math.sign(y) * Math.pow(Math.abs(y), 1.35) * 48;
-  const zoomVelocity = zoomDirection * 0.85;
+  const maxZoom = getStreamDeckMaxZoom(camera);
+  const current = normalizePtzState(camera.ptz, maxZoom);
+  const panTiltMultiplier = getStreamDeckPanTiltSpeedMultiplier(camera);
+  const zoomMultiplier = getStreamDeckZoomSpeedMultiplier(camera);
+  const panVelocity = Math.sign(x) * Math.pow(Math.abs(x), 1.35) * 82 * panTiltMultiplier;
+  const tiltVelocity = Math.sign(y) * Math.pow(Math.abs(y), 1.35) * 48 * panTiltMultiplier;
+  const zoomVelocity = zoomDirection * 0.85 * zoomMultiplier;
 
   camera.ptz = {
     ...current,
     pan: clamp(current.pan + panVelocity * elapsed, -180, 180),
     tilt: clamp(current.tilt - tiltVelocity * elapsed, -75, 75),
-    zoom: clamp(current.zoom + zoomVelocity * elapsed, 1.1, 3.2)
+    zoom: clamp(current.zoom + zoomVelocity * elapsed, 1.1, maxZoom)
   };
 }
 
@@ -3343,7 +3368,11 @@ function startStreamDeckPtzMotion(camera, vector) {
     return;
   }
 
-  activeStreamDeckPtzMotion = { camera, vector, lastFrameTime: null };
+  activeStreamDeckPtzMotion = {
+    camera,
+    vector: { x: vector.x ?? 0, y: vector.y ?? 0, zoomDirection: vector.zoomDirection ?? 0 },
+    lastFrameTime: null
+  };
 
   if (!streamDeckPtzAnimationFrame) {
     streamDeckPtzAnimationFrame = requestAnimationFrame(tickStreamDeckPtzMotion);
@@ -3366,7 +3395,7 @@ function tickStreamDeckPtzMotion(timestamp) {
   motion.lastFrameTime = timestamp;
 
   if (elapsed > 0) {
-    movePtzCameraByVector(motion.camera, motion.vector.x, motion.vector.y, 0, elapsed);
+    movePtzCameraByVector(motion.camera, motion.vector.x, motion.vector.y, motion.vector.zoomDirection, elapsed);
     renderPtzProjectionCanvases();
   }
 
@@ -3501,12 +3530,21 @@ function getLanReachableCameras(controller) {
   return cameras.sort((a, b) => state.nodes.indexOf(a) - state.nodes.indexOf(b));
 }
 
-function normalizePtzState(ptz) {
+// maxZoom defaults to the optical-only range (3.2x) — callers that know a
+// camera has Digital Zoom enabled pass getStreamDeckMaxZoom(camera) instead,
+// everyone else is unaffected.
+function normalizePtzState(ptz, maxZoom = 3.2) {
   return {
     pan: clamp(Number(ptz?.pan ?? 0), -180, 180),
     tilt: clamp(Number(ptz?.tilt ?? 0), -75, 75),
-    zoom: clamp(Number(ptz?.zoom ?? 1.7), 1.1, 3.2)
+    zoom: clamp(Number(ptz?.zoom ?? 1.7), 1.1, maxZoom)
   };
+}
+
+const STREAM_DECK_DIGITAL_ZOOM_MAX = 6.0;
+
+function getStreamDeckMaxZoom(camera) {
+  return camera?.digitalZoomEnabled ? STREAM_DECK_DIGITAL_ZOOM_MAX : 3.2;
 }
 
 // Preset storage lives on the camera itself (not the controller), so any
@@ -4012,7 +4050,17 @@ function runStreamDeckAction(node, action) {
       return;
     }
 
-    if (["stop", "stopPan", "stopTilt"].includes(action.definitionId)) {
+    if (action.definitionId === "zoomI") {
+      startStreamDeckPtzMotion(camera, { zoomDirection: 1 });
+      return;
+    }
+
+    if (action.definitionId === "zoomO") {
+      startStreamDeckPtzMotion(camera, { zoomDirection: -1 });
+      return;
+    }
+
+    if (["stop", "stopPan", "stopTilt", "zoomS"].includes(action.definitionId)) {
       stopStreamDeckPtzMotion();
       return;
     }
@@ -4119,9 +4167,21 @@ function runStreamDeckAction(node, action) {
       return;
     }
 
-    if (action.definitionId === "digitalZoom" && camera && action.bol !== undefined) {
+    // Always flips state rather than trusting the button's own "bol" value —
+    // every per-camera Digital Zoom button in this Companion setup sends
+    // bol:0 on *both* of its step-progression steps (a copy-paste mistake
+    // when the template was duplicated across all 6 cameras), so reading
+    // "bol" literally would leave the button permanently stuck on OFF.
+    if (action.definitionId === "digitalZoom" && camera) {
       recordUndoSnapshot();
-      camera.digitalZoomEnabled = Number(action.bol) === 1;
+      camera.digitalZoomEnabled = !camera.digitalZoomEnabled;
+      render();
+      return;
+    }
+
+    if (action.definitionId === "zSpeedS" && camera && action.speed !== undefined) {
+      recordUndoSnapshot();
+      camera.zoomSpeedValue = clamp(Number(action.speed), 0, 127);
       render();
       return;
     }
@@ -4315,7 +4375,8 @@ function renderPtzProjectionCanvas(canvas) {
   drawEquirectangularProjection(canvas, image, {
     pan: Number(source.ptz?.pan ?? canvas.dataset.pan ?? 0),
     tilt: Number(source.ptz?.tilt ?? canvas.dataset.tilt ?? 0),
-    zoom: Number(source.ptz?.zoom ?? canvas.dataset.zoom ?? 1.7)
+    zoom: Number(source.ptz?.zoom ?? canvas.dataset.zoom ?? 1.7),
+    maxZoom: getStreamDeckMaxZoom(source)
   });
 }
 
@@ -4347,7 +4408,7 @@ function drawEquirectangularProjection(canvas, image, ptz) {
   const sourceHeight = sourceCanvas.height;
   const yaw = degToRad(Number(ptz.pan ?? 0));
   const pitch = degToRad(clamp(Number(ptz.tilt ?? 0), -84, 84));
-  const zoom = clamp(Number(ptz.zoom ?? 1.7), 1.1, 3.2);
+  const zoom = clamp(Number(ptz.zoom ?? 1.7), 1.1, ptz.maxZoom ?? 3.2);
   const horizontalFov = degToRad(82 / zoom);
   const verticalFov = 2 * Math.atan(Math.tan(horizontalFov / 2) * (height / width));
   const tanHalfH = Math.tan(horizontalFov / 2);
