@@ -4327,9 +4327,40 @@ function runStreamDeckAction(node, action) {
 // Live feedback → button style, recomputed on every render from the mapped
 // node's current state (tally/bus), mirroring how program_bg/preview_bg and
 // tallyPreview/tallyProgram behave on the real Companion setup.
+// Values published by canon-ptz as its own Companion variables (e.g.
+// "PTZ_101:aeBrightness"), referenced by "variable_value" feedbacks — kept
+// separate from the button-text variables in device-renderers.js since those
+// resolve to display strings ("F5.6"), while this needs the raw comparable
+// number the real module would publish (aeBrightness in quarter-stops,
+// matching the same unit runStreamDeckAction's aeBrightness handler reads).
+function resolveStreamDeckFeedbackVariable(camera, variableName) {
+  if (variableName === "aeBrightness") {
+    return Math.round(clamp(Number(camera?.exposureEV ?? 0), -1.5, 1.5) * 4);
+  }
+
+  return undefined;
+}
+
+function evaluateStreamDeckFeedbackOp(op, currentValue, compareValue) {
+  switch (op) {
+    case "ne":
+      return currentValue !== compareValue;
+    case "gt":
+      return currentValue > compareValue;
+    case "gte":
+      return currentValue >= compareValue;
+    case "lt":
+      return currentValue < compareValue;
+    case "lte":
+      return currentValue <= compareValue;
+    default:
+      return currentValue === compareValue;
+  }
+}
+
 function getStreamDeckButtonStyle(node, cell) {
   let bgcolor = cell.bgcolor;
-  const color = cell.color;
+  let color = cell.color;
 
   cell.feedbacks.forEach((feedback) => {
     const targetNodeId = node.instanceMap?.[feedback.instanceId];
@@ -4339,6 +4370,10 @@ function getStreamDeckButtonStyle(node, cell) {
     }
 
     let active = false;
+    let activeBgcolor = feedback.definitionId.includes("preview") || feedback.definitionId === "tallyPreview"
+      ? "#0ea5e9"
+      : "#ef4444";
+    let activeColor = null;
 
     if (feedback.module === "bmd-atem") {
       const switcher = getNode(targetNodeId);
@@ -4361,6 +4396,19 @@ function getStreamDeckButtonStyle(node, cell) {
           active = true;
         }
       });
+    } else if (feedback.module === "internal" && feedback.definitionId === "variable_value") {
+      const camera = getNode(targetNodeId);
+      const currentValue = resolveStreamDeckFeedbackVariable(camera, feedback.variableName);
+
+      if (currentValue !== undefined) {
+        active = evaluateStreamDeckFeedbackOp(feedback.op, currentValue, Number(feedback.compareValue));
+      }
+
+      // This feedback carries its own bg/text color from the Companion
+      // export (e.g. red bg + white text for the currently active EV
+      // button) — use those instead of the generic tally-color guess above.
+      activeBgcolor = feedback.bgcolor ?? activeBgcolor;
+      activeColor = feedback.color ?? null;
     }
 
     if (feedback.isInverted) {
@@ -4368,9 +4416,11 @@ function getStreamDeckButtonStyle(node, cell) {
     }
 
     if (active) {
-      bgcolor = feedback.definitionId.includes("preview") || feedback.definitionId === "tallyPreview"
-        ? "#0ea5e9"
-        : "#ef4444";
+      bgcolor = activeBgcolor;
+
+      if (activeColor) {
+        color = activeColor;
+      }
     }
   });
 

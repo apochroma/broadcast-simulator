@@ -19,7 +19,8 @@
 
   const SUPPORTED_FEEDBACKS = {
     "bmd-atem": new Set(["program_bg", "preview_bg"]),
-    "canon-ptz": new Set(["tallyPreview", "tallyProgram"])
+    "canon-ptz": new Set(["tallyPreview", "tallyProgram"]),
+    internal: new Set(["variable_value"])
   };
 
   async function decompressAndParse(file) {
@@ -140,6 +141,10 @@
     return { steps: stepKeys.map((key) => normalizeStep(rawConfig, control.steps[key])) };
   }
 
+  function instanceIdForLabel(rawConfig, label) {
+    return Object.entries(rawConfig.instances ?? {}).find(([, instance]) => instance.label === label)?.[0];
+  }
+
   function normalizeButtonFeedbacks(rawConfig, control) {
     const feedbacks = [];
 
@@ -152,13 +157,38 @@
       }
 
       const options = feedback.options ?? {};
+      const isInverted = feedback.isInverted?.value === true;
+
+      // "variable_value" is Companion's own generic feedback: compares a
+      // module-published variable (e.g. canon-ptz's own "PTZ_101:aeBrightness")
+      // against a fixed value, and overrides bg/text color when it matches —
+      // this is how the real Companion setup highlights whichever EV button
+      // currently matches the camera's AE Level. The variable is referenced by
+      // instance *label* (not connectionId), so resolve it the same way here.
+      if (module === "internal" && definitionId === "variable_value") {
+        const [label, variableName] = String(options.variable?.value ?? "").split(":");
+
+        feedbacks.push({
+          module,
+          instanceId: instanceIdForLabel(rawConfig, label),
+          definitionId,
+          variableName,
+          op: options.op?.value ?? "eq",
+          compareValue: options.value?.value,
+          isInverted,
+          bgcolor: rgbIntToCss(feedback.style?.bgcolor),
+          color: rgbIntToCss(feedback.style?.color)
+        });
+        return;
+      }
+
       feedbacks.push({
         module,
         instanceId: feedback.connectionId,
         definitionId,
         mixeffect: Number(options.mixeffect?.value ?? 0),
         input: options.input?.value,
-        isInverted: feedback.isInverted?.value === true
+        isInverted
       });
     });
 
