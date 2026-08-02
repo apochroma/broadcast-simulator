@@ -2209,6 +2209,13 @@ function isPtzPanoramaSource(source) {
     return false;
   }
 
+  // .hdr files can't be decoded by HTMLImageElement at all, so the
+  // Image-based aspect-ratio probing below doesn't apply — every .hdr
+  // dropped onto a camera is treated as an equirectangular panorama outright.
+  if (source.media.isHDR) {
+    return true;
+  }
+
   if (!source.media.isEquirectangular && isEquirectangularImage(source.media.name, source.media.width, source.media.height)) {
     source.media.isEquirectangular = true;
   }
@@ -2291,11 +2298,19 @@ function renderPtzPanoramaPicture(source) {
 
   const filters = [];
 
-  // Each EV stop doubles/halves light, so brightness() gets a 2^EV multiplier
-  // — a photometrically-reasonable stand-in for a real exposure/aperture change.
-  const exposureEV = clamp(Number(source.exposureEV ?? 0), -1.5, 1.5);
-  if (exposureEV !== 0) {
-    filters.push(`brightness(${2 ** exposureEV})`);
+  // HDR sources bake exposure into the actual pixels (real linear-light
+  // scaling + filmic tonemap in drawEquirectangularProjectionHDR) instead of
+  // this CSS filter — a flat brightness() multiply on an already-tonemapped
+  // SDR image can't recover highlight/shadow detail the way real HDR data can.
+  if (!source.media?.isHDR) {
+    // Each EV stop doubles/halves light, so brightness() gets a 2^EV multiplier
+    // — a photometrically-reasonable stand-in for a real exposure/aperture change.
+    // Combines AE Level with Gain/Iris/Shutter so all four controls visibly
+    // affect the picture, not just AE Level.
+    const exposureEV = getStreamDeckEffectiveExposureEV(source);
+    if (exposureEV !== 0) {
+      filters.push(`brightness(${2 ** exposureEV})`);
+    }
   }
 
   const effectiveKelvin = getStreamDeckEffectiveKelvin(source);
@@ -3437,6 +3452,41 @@ function getStreamDeckShutterLabel(camera) {
   return STREAM_DECK_SHUTTER_LABELS[index];
 }
 
+// Combined visual range for Gain+Iris+Shutter+AE-Level together — wide
+// enough that pushing all three toward one extreme genuinely blows out or
+// crushes the image (as it would on a real camera), while still keeping the
+// CSS brightness()/HDR exposure multiplier out of numerically silly territory.
+const STREAM_DECK_EXPOSURE_EV_LIMIT = 8;
+
+// Gain, Iris and Shutter each independently brighten/darken the picture on a
+// real camera, on top of the explicit AE Level (aeBrightness) compensation.
+// Converts each control's current step to an EV offset relative to its own
+// neutral/default step, so Gain/Iris/Shutter Up/Down buttons actually affect
+// the rendered image instead of only updating their on-screen value.
+function getStreamDeckExposureContributionEV(camera) {
+  // ~6.02dB per stop (doubling of linear gain), the standard photographic
+  // dB-to-stops conversion.
+  const gainEV = Number(camera?.gainDb ?? 0) / 6.02;
+
+  const fNumber = parseFloat(getStreamDeckIrisLabel(camera).replace("F", ""));
+  const neutralFNumber = parseFloat(STREAM_DECK_IRIS_LABELS[STREAM_DECK_IRIS_DEFAULT_INDEX].replace("F", ""));
+  const irisEV = 2 * Math.log2(neutralFNumber / fNumber);
+
+  const shutterDenominator = parseFloat(getStreamDeckShutterLabel(camera).split("/")[1]);
+  const neutralShutterDenominator = parseFloat(STREAM_DECK_SHUTTER_LABELS[STREAM_DECK_SHUTTER_DEFAULT_INDEX].split("/")[1]);
+  const shutterEV = Math.log2(neutralShutterDenominator / shutterDenominator);
+
+  return gainEV + irisEV + shutterEV;
+}
+
+// Total exposure EV actually applied to the rendered picture: AE Level
+// (aeBrightness, ±1.5EV) plus the Gain/Iris/Shutter contribution above.
+function getStreamDeckEffectiveExposureEV(camera) {
+  const aeBrightnessEV = clamp(Number(camera?.exposureEV ?? 0), -1.5, 1.5);
+  const contributionEV = getStreamDeckExposureContributionEV(camera);
+  return clamp(aeBrightnessEV + contributionEV, -STREAM_DECK_EXPOSURE_EV_LIMIT, STREAM_DECK_EXPOSURE_EV_LIMIT);
+}
+
 // Color temperature (K) list per Canon XC Control Protocol Specs
 // (c.1.wb.kelvin.list) — non-linear, denser toward the warm end.
 const STREAM_DECK_KELVIN_LIST = [
@@ -3448,7 +3498,19 @@ const STREAM_DECK_KELVIN_LIST = [
 ];
 const STREAM_DECK_KELVIN_DEFAULT_INDEX = STREAM_DECK_KELVIN_LIST.indexOf(4760);
 
+// Reads the actually-applied Kelvin value where possible (getStreamDeckEffectiveKelvin
+// accounts for whitebalanceMode: "daylight"/"tungsten" use their fixed reference
+// value, not the last Kelvin Up/Down step), falling back to the raw stored step
+// for modes where no fixed/simulated value applies (auto/manual/wb_a/wb_b) — so
+// toggling WB mode (whitebalanceModeToggle) updates this readout too, not only
+// the dedicated Kelvin Up/Down buttons.
 function getStreamDeckKelvinLabel(camera) {
+  const effectiveKelvin = getStreamDeckEffectiveKelvin(camera);
+
+  if (effectiveKelvin !== null) {
+    return `${effectiveKelvin}K`;
+  }
+
   const index = clamp(Number(camera?.kelvinStepIndex ?? STREAM_DECK_KELVIN_DEFAULT_INDEX), 0, STREAM_DECK_KELVIN_LIST.length - 1);
   return `${STREAM_DECK_KELVIN_LIST[index]}K`;
 }
@@ -3556,7 +3618,28 @@ function saveCameraPreset(camera, presetNumber) {
   }
 
   recordUndoSnapshot();
-  camera.presets = { ...(camera.presets ?? {}), [presetNumber]: normalizePtzState(camera.ptz) };
+  camera.presets = {
+    ...(camera.presets ?? {}),
+    [presetNumber]: {
+      ...normalizePtzState(camera.ptz),
+      // AE-Level, Farbtemperatur und Gain/Iris/Shutter gehören zum "Look"
+      // einer Einstellung genauso wie die Bildausrichtung — Preset 1 kann so
+      // z.B. +1.5EV/3200K/F1.8 sein und Preset 2 -1.5EV/5600K/F11, ohne dass
+      // ein Recall das jeweils andere überschreibt. Jeder Wert wird hier auf
+      // seinen (ggf. neutralen Default-)Wert normalisiert statt roh
+      // übernommen — eine frisch hinzugefügte Kamera hat z.B. noch nie
+      // gesetztes camera.gainDb === undefined; würden wir das ungeprüft
+      // speichern, bliebe beim späteren Recall (das undefined-Werte bewusst
+      // überspringt) der zu diesem Zeitpunkt zufällig live anliegende Gain
+      // stehen, statt deterministisch auf den Preset-Zustand zurückzufallen.
+      exposureEV: clamp(Number(camera.exposureEV ?? 0), -1.5, 1.5),
+      kelvinStepIndex: clamp(Number(camera.kelvinStepIndex ?? STREAM_DECK_KELVIN_DEFAULT_INDEX), 0, STREAM_DECK_KELVIN_LIST.length - 1),
+      whitebalanceMode: camera.whitebalanceMode ?? "auto",
+      gainDb: clamp(Number(camera.gainDb ?? 0), 0, 36),
+      irisStepIndex: clamp(Number(camera.irisStepIndex ?? STREAM_DECK_IRIS_DEFAULT_INDEX), 0, STREAM_DECK_IRIS_LABELS.length - 1),
+      shutterStepIndex: clamp(Number(camera.shutterStepIndex ?? STREAM_DECK_SHUTTER_DEFAULT_INDEX), 0, STREAM_DECK_SHUTTER_LABELS.length - 1)
+    }
+  };
   render();
 }
 
@@ -3568,7 +3651,30 @@ function recallCameraPreset(camera, presetNumber) {
   }
 
   recordUndoSnapshot();
+
+  // Belichtung/Weissabgleich springen sofort (wie am realen Gerät), nur
+  // Pan/Tilt/Zoom fahren weiterhin sanft animiert über animatePtzTo.
+  if (preset.exposureEV !== undefined) {
+    camera.exposureEV = preset.exposureEV;
+  }
+  if (preset.kelvinStepIndex !== undefined) {
+    camera.kelvinStepIndex = preset.kelvinStepIndex;
+  }
+  if (preset.whitebalanceMode !== undefined) {
+    camera.whitebalanceMode = preset.whitebalanceMode;
+  }
+  if (preset.gainDb !== undefined) {
+    camera.gainDb = preset.gainDb;
+  }
+  if (preset.irisStepIndex !== undefined) {
+    camera.irisStepIndex = preset.irisStepIndex;
+  }
+  if (preset.shutterStepIndex !== undefined) {
+    camera.shutterStepIndex = preset.shutterStepIndex;
+  }
+
   animatePtzTo(camera, normalizePtzState(preset));
+  render();
 }
 
 // PTZ Pro preset keys save/recall the pan/tilt/zoom framing onto whichever
@@ -4355,6 +4461,36 @@ function renderPtzProjectionCanvas(canvas) {
     return;
   }
 
+  // HDR panoramas carry real scene-referred luminance, so exposure/tonemap
+  // happen per-pixel in drawEquirectangularProjectionHDR instead of the
+  // CSS brightness() filter used for regular (already-tonemapped) images —
+  // see renderPtzPanoramaPicture, which skips that filter when isHDR is set.
+  if (source.media?.isHDR) {
+    const hdr = getHDRPanoramaData(url);
+
+    if (!hdr.loaded) {
+      return;
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    const resolutionScale = Math.min(1, 420 / Math.max(rect.width, 1));
+    const width = Math.max(2, Math.round(rect.width * resolutionScale));
+    const height = Math.max(2, Math.round(rect.height * resolutionScale));
+
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+    }
+
+    drawEquirectangularProjectionHDR(canvas, hdr, {
+      pan: Number(source.ptz?.pan ?? canvas.dataset.pan ?? 0),
+      tilt: Number(source.ptz?.tilt ?? canvas.dataset.tilt ?? 0),
+      zoom: Number(source.ptz?.zoom ?? canvas.dataset.zoom ?? 1.7),
+      maxZoom: getStreamDeckMaxZoom(source)
+    }, getStreamDeckEffectiveExposureEV(source));
+    return;
+  }
+
   const image = getPtzProjectionImage(url);
 
   if (!image.complete || !image.naturalWidth || !image.naturalHeight) {
@@ -4389,6 +4525,245 @@ function getPtzProjectionImage(url) {
   image.src = url;
   ptzProjectionImages.set(url, image);
   return image;
+}
+
+const hdrPanoramaCache = new Map();
+
+// Fetches + parses a .hdr file once per URL (cached), then triggers a repaint
+// once decoded — mirrors how getPtzProjectionImage's Image "load" event
+// causes a re-render, just via an explicit callback since fetch/parse has no
+// native "loaded" flag to poll like HTMLImageElement.complete does.
+function getHDRPanoramaData(url) {
+  if (hdrPanoramaCache.has(url)) {
+    return hdrPanoramaCache.get(url);
+  }
+
+  const entry = { width: 0, height: 0, data: null, loaded: false, error: null };
+  hdrPanoramaCache.set(url, entry);
+
+  fetch(url)
+    .then((response) => response.arrayBuffer())
+    .then((buffer) => {
+      const parsed = parseRadianceHDR(buffer);
+      entry.width = parsed.width;
+      entry.height = parsed.height;
+      entry.data = parsed.data;
+      entry.loaded = true;
+      renderPtzProjectionCanvases();
+    })
+    .catch((error) => {
+      entry.error = error;
+      console.error("HDR-Panorama konnte nicht gelesen werden:", error);
+    });
+
+  return entry;
+}
+
+// Decodes a Radiance/RGBE .hdr file (the format used by most free HDRI
+// libraries, incl. openfootage.net) into linear-light float RGB. Supports
+// the common cases: new-style per-scanline RLE and flat/uncompressed data,
+// with the standard "-Y height +X width" (top-to-bottom, left-to-right)
+// orientation. Old-style (pre-1991) RLE and rotated orientations aren't
+// handled — vanishingly rare in modern exports.
+function parseRadianceHDR(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let pos = 0;
+  const decoder = new TextDecoder();
+
+  function readLine() {
+    const start = pos;
+
+    while (pos < bytes.length && bytes[pos] !== 0x0a) {
+      pos += 1;
+    }
+
+    const line = decoder.decode(bytes.subarray(start, pos));
+    pos += 1;
+    return line;
+  }
+
+  const magic = readLine();
+
+  if (!magic.startsWith("#?")) {
+    throw new Error("Keine gültige Radiance-HDR-Datei (fehlende #?-Kennung).");
+  }
+
+  let headerLine = readLine();
+
+  while (headerLine.trim() !== "") {
+    headerLine = readLine();
+  }
+
+  const resolutionLine = readLine();
+  const resolutionMatch = resolutionLine.match(/-Y\s+(\d+)\s+\+X\s+(\d+)/);
+
+  if (!resolutionMatch) {
+    throw new Error(`Nicht unterstützte HDR-Auflösungszeile: "${resolutionLine}"`);
+  }
+
+  const height = Number(resolutionMatch[1]);
+  const width = Number(resolutionMatch[2]);
+  const data = new Float32Array(width * height * 3);
+  const scanline = new Uint8Array(width * 4);
+
+  for (let y = 0; y < height; y += 1) {
+    const isNewRle = width >= 8 && width < 0x8000
+      && bytes[pos] === 2 && bytes[pos + 1] === 2
+      && ((bytes[pos + 2] << 8) | bytes[pos + 3]) === width;
+
+    if (isNewRle) {
+      pos += 4;
+
+      for (let channel = 0; channel < 4; channel += 1) {
+        let x = 0;
+
+        while (x < width) {
+          const count = bytes[pos];
+          pos += 1;
+
+          if (count > 128) {
+            const value = bytes[pos];
+            pos += 1;
+            const runLength = count - 128;
+
+            for (let i = 0; i < runLength; i += 1) {
+              scanline[(x + i) * 4 + channel] = value;
+            }
+
+            x += runLength;
+          } else {
+            for (let i = 0; i < count; i += 1) {
+              scanline[(x + i) * 4 + channel] = bytes[pos];
+              pos += 1;
+            }
+
+            x += count;
+          }
+        }
+      }
+    } else {
+      for (let x = 0; x < width; x += 1) {
+        scanline[x * 4] = bytes[pos];
+        scanline[x * 4 + 1] = bytes[pos + 1];
+        scanline[x * 4 + 2] = bytes[pos + 2];
+        scanline[x * 4 + 3] = bytes[pos + 3];
+        pos += 4;
+      }
+    }
+
+    for (let x = 0; x < width; x += 1) {
+      const r = scanline[x * 4];
+      const g = scanline[x * 4 + 1];
+      const b = scanline[x * 4 + 2];
+      const e = scanline[x * 4 + 3];
+      const outIndex = (y * width + x) * 3;
+
+      if (e === 0) {
+        data[outIndex] = 0;
+        data[outIndex + 1] = 0;
+        data[outIndex + 2] = 0;
+      } else {
+        // Standard RGBE decode: shared 8-bit exponent, biased by 128 (sign)
+        // and 8 (mantissa bits already folded into r/g/b being 0-255).
+        const scale = 2 ** (e - 136);
+        data[outIndex] = r * scale;
+        data[outIndex + 1] = g * scale;
+        data[outIndex + 2] = b * scale;
+      }
+    }
+  }
+
+  return { width, height, data };
+}
+
+function bilinearSampleFloatEquirect(data, width, height, x, y) {
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const x1 = (x0 + 1) % width;
+  const y1 = Math.min(y0 + 1, height - 1);
+  const tx = x - x0;
+  const ty = y - y0;
+  const ia = (y0 * width + x0) * 3;
+  const ib = (y0 * width + x1) * 3;
+  const ic = (y1 * width + x0) * 3;
+  const id = (y1 * width + x1) * 3;
+
+  return [
+    lerp(lerp(data[ia], data[ib], tx), lerp(data[ic], data[id], tx), ty),
+    lerp(lerp(data[ia + 1], data[ib + 1], tx), lerp(data[ic + 1], data[id + 1], tx), ty),
+    lerp(lerp(data[ia + 2], data[ib + 2], tx), lerp(data[ic + 2], data[id + 2], tx), ty)
+  ];
+}
+
+// Narkowicz's ACES filmic fit — compresses unbounded linear HDR light into a
+// displayable 0-1 range with a filmic highlight rolloff (so a blown-out sky
+// eases toward white instead of hard-clipping), rather than the flat clip a
+// naive multiply-and-cap would produce.
+function acesFilmicTonemap(x) {
+  const a = 2.51;
+  const b = 0.03;
+  const c = 2.43;
+  const d = 0.59;
+  const e = 0.14;
+  return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0, 1);
+}
+
+function drawEquirectangularProjectionHDR(canvas, hdr, ptz, exposureEV) {
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+  if (!ctx) {
+    return;
+  }
+
+  const width = canvas.width;
+  const height = canvas.height;
+  const output = ctx.createImageData(width, height);
+  const sourceData = hdr.data;
+  const sourceWidth = hdr.width;
+  const sourceHeight = hdr.height;
+  const yaw = degToRad(Number(ptz.pan ?? 0));
+  const pitch = degToRad(clamp(Number(ptz.tilt ?? 0), -84, 84));
+  const zoom = clamp(Number(ptz.zoom ?? 1.7), 1.1, ptz.maxZoom ?? 3.2);
+  const horizontalFov = degToRad(82 / zoom);
+  const verticalFov = 2 * Math.atan(Math.tan(horizontalFov / 2) * (height / width));
+  const tanHalfH = Math.tan(horizontalFov / 2);
+  const tanHalfV = Math.tan(verticalFov / 2);
+  const cosYaw = Math.cos(yaw);
+  const sinYaw = Math.sin(yaw);
+  const cosPitch = Math.cos(pitch);
+  const sinPitch = Math.sin(pitch);
+  const exposureMultiplier = 2 ** clamp(Number(exposureEV ?? 0), -STREAM_DECK_EXPOSURE_EV_LIMIT, STREAM_DECK_EXPOSURE_EV_LIMIT);
+  const targetData = output.data;
+
+  for (let py = 0; py < height; py += 1) {
+    const cameraY = (1 - 2 * ((py + 0.5) / height)) * tanHalfV;
+
+    for (let px = 0; px < width; px += 1) {
+      const cameraX = (2 * ((px + 0.5) / width) - 1) * tanHalfH;
+      const cameraZ = 1;
+
+      const pitchedY = cameraY * cosPitch + cameraZ * sinPitch;
+      const pitchedZ = -cameraY * sinPitch + cameraZ * cosPitch;
+      const worldX = cameraX * cosYaw + pitchedZ * sinYaw;
+      const worldY = pitchedY;
+      const worldZ = -cameraX * sinYaw + pitchedZ * cosYaw;
+      const length = Math.hypot(worldX, worldY, worldZ) || 1;
+      const longitude = Math.atan2(worldX, worldZ);
+      const latitude = Math.asin(clamp(worldY / length, -1, 1));
+      const sourceX = modulo((longitude / (Math.PI * 2) + 0.5) * sourceWidth, sourceWidth);
+      const sourceY = clamp((0.5 - latitude / Math.PI) * sourceHeight, 0, sourceHeight - 1);
+
+      const [r, g, b] = bilinearSampleFloatEquirect(sourceData, sourceWidth, sourceHeight, sourceX, sourceY);
+      const targetIndex = (py * width + px) * 4;
+
+      targetData[targetIndex] = acesFilmicTonemap(r * exposureMultiplier) ** (1 / 2.2) * 255;
+      targetData[targetIndex + 1] = acesFilmicTonemap(g * exposureMultiplier) ** (1 / 2.2) * 255;
+      targetData[targetIndex + 2] = acesFilmicTonemap(b * exposureMultiplier) ** (1 / 2.2) * 255;
+      targetData[targetIndex + 3] = 255;
+    }
+  }
+
+  ctx.putImageData(output, 0, 0);
 }
 
 function drawEquirectangularProjection(canvas, image, ptz) {
@@ -4517,7 +4892,20 @@ async function setDroppedFileMedia(nodeId, file) {
 
   revokeNodeMediaUrl(node);
 
-  if (file.type.startsWith("image/")) {
+  // Browsers never set an image/* MIME type for .hdr (they can't decode it
+  // natively), so this has to be checked by extension before the MIME-based
+  // branch below — it would otherwise fall through to the generic "file" case.
+  if (/\.hdr$/i.test(file.name)) {
+    const url = await fileToDataUrl(file);
+    node.media = {
+      kind: "image",
+      name: file.name,
+      url,
+      embedded: true,
+      isHDR: true,
+      isEquirectangular: true
+    };
+  } else if (file.type.startsWith("image/")) {
     const url = await fileToDataUrl(file);
     const imageInfo = await getImageInfo(url);
     node.media = {
