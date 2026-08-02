@@ -58,6 +58,18 @@
     return rawConfig.instances?.[connectionId]?.moduleId ?? connectionId;
   }
 
+  // The "rotate camera 180°" buttons don't use a canon-ptz action at all —
+  // Companion has no built-in action for it, so this setup uses the generic
+  // "internal: exec" action (a raw shell command) running curl against the
+  // camera's own HTTP CGI, e.g.
+  //   curl "http://$(PTZ_101:cameraIP)/-wvhttp-01-/control.cgi?c.1.erotate=18000"
+  // We obviously can't (and shouldn't) shell out to a real camera, and "exec"
+  // in general is arbitrary/unsafe to interpret — but this one specific,
+  // well-known command shape is safe to recognize and simulate: extract the
+  // target camera's instance label and the erotate value (18000 = 180.00°,
+  // 0 = normal) straight out of the command string.
+  const EROTATE_COMMAND_REGEX = /\$\(([^:()]+):cameraIP\)[^"]*[?&]c\.1\.erotate=(\d+)/;
+
   function normalizeActionsList(rawConfig, actions, out) {
     if (!Array.isArray(actions)) {
       return;
@@ -82,6 +94,21 @@
           variableName: options.name?.value,
           value: options.value?.value
         });
+      } else if (module === "internal" && definitionId === "exec") {
+        const match = String(options.path?.value ?? "").match(EROTATE_COMMAND_REGEX);
+
+        if (match) {
+          const [, label, rotateValue] = match;
+          // Reported as a canon-ptz action (not "internal") since it targets
+          // the camera and can reuse the normal instanceId → node.instanceMap
+          // resolution every other canon-ptz action already goes through.
+          out.push({
+            module: "canon-ptz",
+            instanceId: instanceIdForLabel(rawConfig, label),
+            definitionId: "cameraRotate180",
+            rotated: Number(rotateValue) !== 0
+          });
+        }
       } else if (SUPPORTED_ACTIONS[module]?.has(definitionId)) {
         out.push({
           module,

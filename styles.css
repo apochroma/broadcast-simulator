@@ -1372,6 +1372,16 @@ body.is-read-only #openGearLibrary {
   object-fit: contain;
 }
 
+.node-housing {
+  display: block;
+}
+
+.source-rotated-180-compensate {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 .ptz-panorama-view {
   position: relative;
   display: grid;
@@ -1549,6 +1559,34 @@ body.is-read-only #openGearLibrary {
   height: 60%;
   object-fit: contain;
   pointer-events: none;
+}
+
+.streamdeck-btn-icon-fill {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.streamdeck-btn-camera-name {
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  color: #fff;
+  font-size: 0.48rem;
+  font-weight: 600;
+  line-height: 1.15;
+  text-align: center;
+  pointer-events: none;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+}
+
+.streamdeck-btn-camera-name.is-bottom {
+  bottom: 3px;
+}
+
+.streamdeck-btn-camera-name.is-top {
+  top: 3px;
 }
 
 .streamdeck-mapping-list {

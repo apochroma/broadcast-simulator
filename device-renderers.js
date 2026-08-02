@@ -50,6 +50,15 @@
         previewSource?.id === node.id ? "is-preview" : ""
       ].filter(Boolean).join(" ");
 
+      // The camera's "housing" (title/footer chrome, everything except the
+      // physical connector sockets, which must stay put for cable routing)
+      // visually flips 180° when the operator has mounted the camera upside
+      // down and enabled the erotate correction — see the cameraRotate180
+      // action below and renderNodeBody's camera branch, which nests a
+      // counter-rotated wrapper around just the video content so the picture
+      // itself still reads normally despite the housing being flipped.
+      const housingRotationDeg = node.type === "camera" && node.rotated180 ? 180 : 0;
+
       return `
         <article class="${classes}"
           data-node-id="${node.id}"
@@ -57,23 +66,25 @@
           ${this.renderSockets(node, "input")}
           ${this.renderSockets(node, "output")}
           ${this.renderPortActivityLeds(node)}
-          <div class="node-header drag-handle">
-            <div>
-              <p class="node-kicker">${node.kicker}</p>
-              <h2>${node.title}</h2>
+          <div class="node-housing" style="transform: rotate(${housingRotationDeg}deg);">
+            <div class="node-header drag-handle">
+              <div>
+                <p class="node-kicker">${node.kicker}</p>
+                <h2>${node.title}</h2>
+              </div>
+              <div class="node-actions ${this.state.readOnly ? "is-hidden" : ""}">
+                ${node.type === "switcher" ? this.renderSwitcherModeButton(node) : ""}
+                <button class="small-button icon-button" type="button" data-action="edit-node" data-node-id="${node.id}" title="Bearbeiten" aria-label="Bearbeiten">
+                  ${this.icons.edit}
+                </button>
+                <button class="small-button icon-button danger" type="button" data-action="remove-node" data-node-id="${node.id}" title="Entfernen" aria-label="Entfernen">
+                  ${this.icons.remove}
+                </button>
+              </div>
             </div>
-            <div class="node-actions ${this.state.readOnly ? "is-hidden" : ""}">
-              ${node.type === "switcher" ? this.renderSwitcherModeButton(node) : ""}
-              <button class="small-button icon-button" type="button" data-action="edit-node" data-node-id="${node.id}" title="Bearbeiten" aria-label="Bearbeiten">
-                ${this.icons.edit}
-              </button>
-              <button class="small-button icon-button danger" type="button" data-action="remove-node" data-node-id="${node.id}" title="Entfernen" aria-label="Entfernen">
-                ${this.icons.remove}
-              </button>
+            <div class="node-body">
+              ${this.renderNodeBody(node)}
             </div>
-          </div>
-          <div class="node-body">
-            ${this.renderNodeBody(node)}
           </div>
         </article>
       `;
@@ -95,10 +106,20 @@
 
     renderNodeBody(node) {
       if (node.type === "camera") {
+        // Counter-rotates the actual video content relative to the housing
+        // flip above: the erotate correction on the real camera means the
+        // *signal* looks normal again despite the physical mount being
+        // upside down, so this wrapper cancels the housing's 180° out for
+        // the picture only — title/footer text stays flipped as the visual
+        // "this camera is inverted" tell, the image itself doesn't.
+        const compensateDeg = node.rotated180 ? 180 : 0;
+
         return `
           <div class="monitor-screen">
             <button class="camera-preview" type="button" data-action="cycle-source-view" data-node-id="${node.id}">
-              ${this.renderSourcePreview(node)}
+              <div class="source-rotated-180-compensate" style="transform: rotate(${compensateDeg}deg);">
+                ${this.renderSourcePreview(node)}
+              </div>
             </button>
           </div>
           <div class="monitor-footer">
@@ -657,9 +678,37 @@
 
       const bg = style.bgcolor ? `background-color: ${style.bgcolor};` : "";
       const fg = style.color ? `color: ${style.color};` : "";
-      const image = cell.png64
-        ? `<img class="streamdeck-btn-icon" src="data:image/png;base64,${cell.png64}" alt="">`
-        : "";
+      // Real Companion shows a live camera thumbnail on these buttons (via a
+      // "bank_current_step" feedback we don't render); as a stand-in, show
+      // the camera product shot (pre-cut to a solid black background so it
+      // blends into the button) instead, flipped 180° in lockstep with the
+      // mapped camera's current rotated180 state, plus the camera's name
+      // resolved the same way any other $(Label:field) button text would be.
+      const rotateAction = this.findCameraRotateAction(cell);
+      let image = "";
+      let cameraNameLabel = "";
+
+      if (rotateAction) {
+        const targetNodeId = node.instanceMap?.[rotateAction.instanceId];
+        const camera = this.callbacks.getNode?.(targetNodeId);
+        const rotated = Boolean(camera?.rotated180);
+        image = `<img class="streamdeck-btn-icon streamdeck-btn-icon-fill" src="assets/canon_black.png" alt="" style="transform: rotate(${rotated ? 180 : 0}deg);">`;
+
+        const instanceLabel = node.companionImport.instances?.[rotateAction.instanceId]?.label;
+        const resolvedName = instanceLabel
+          ? this.resolveStreamDeckButtonText(node, `$(${instanceLabel}:cameraName)`)
+          : "";
+
+        // Text itself stays upright (rotating it 180° would make it
+        // unreadable) — only its position flips from bottom to top, the
+        // same "reads normally, but placement tells you it's inverted" idea
+        // as the housing flip elsewhere.
+        if (resolvedName) {
+          cameraNameLabel = `<span class="streamdeck-btn-camera-name ${rotated ? "is-top" : "is-bottom"}">${escapeHtml(resolvedName)}</span>`;
+        }
+      } else if (cell.png64) {
+        image = `<img class="streamdeck-btn-icon" src="data:image/png;base64,${cell.png64}" alt="">`;
+      }
       // Companion authors write literal "\n" (backslash-n) in button text as
       // their own line-break convention, not an actual newline character.
       const resolvedText = this.resolveStreamDeckButtonText(node, cell.text)?.replace(/\\n/g, "\n");
@@ -668,14 +717,33 @@
       return `
         <button class="streamdeck-btn" type="button" style="${bg}${fg}"
           data-action="streamdeck-button" data-node-id="${node.id}" data-row="${row}" data-col="${col}">
-          ${image}${text}
+          ${image}${cameraNameLabel}${text}
         </button>
       `;
+    }
+
+    findCameraRotateAction(cell) {
+      for (const step of cell.actions?.steps ?? []) {
+        const found = (step.press ?? []).find((action) => action.definitionId === "cameraRotate180");
+
+        if (found) {
+          return found;
+        }
+      }
+
+      return null;
     }
 
     renderSourcePreview(node) {
       const mode = this.callbacks.normalizeSourceViewMode(node);
 
+      // Deliberately does NOT look at node.rotated180 here — this is the
+      // shared "what does this source's signal look like" renderer, used
+      // both for the camera's own card (wrapped in a counter-rotation by
+      // renderNodeBody, see above) and for every downstream monitor/switcher
+      // showing this camera as its routed source. A downstream monitor has
+      // no camera "housing" to compensate for — the erotate-corrected signal
+      // already looks normal at the source, so it should just render as-is.
       if (mode === "media" && node.media && node.media.kind !== "file") {
         if (this.callbacks.isPtzPanoramaSource?.(node)) {
           return this.callbacks.renderPtzPanoramaPicture(node);

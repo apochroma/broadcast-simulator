@@ -3091,6 +3091,7 @@ deviceRenderer = new BroadcastDeviceRenderers.DeviceRenderer({
     ensureSwitcherMediaPools,
     getActiveSwitcher,
     getMonitorLabel,
+    getNode,
     getPtzControlledCamera,
     getStreamDeckButtonStyle,
     getStreamDeckIrisLabel,
@@ -3753,6 +3754,155 @@ function animatePtzTo(camera, target) {
   ptzPresetRecallAnimations.set(camera.id, requestAnimationFrame(step));
 }
 
+const CAMERA_ROTATE_ANIMATION_MS = 2250; // 900 * 2.5
+const CAMERA_ROTATE_VIEWPORT_PAN_MS = 550;
+const cameraRotateAnimations = new Map();
+let viewportFocusAnimationFrame = null;
+
+// Smoothly drives the canvas pan/zoom to an arbitrary target over time —
+// used to bring the camera into view for the flip animation below and to
+// return the viewport to wherever the operator had it afterward. Mirrors
+// setZoom's scroll/zoom math, just spread across frames instead of applied
+// instantly.
+function animateViewport(targetScrollLeft, targetScrollTop, targetZoom, durationMs) {
+  if (viewportFocusAnimationFrame) {
+    cancelAnimationFrame(viewportFocusAnimationFrame);
+  }
+
+  const startScrollLeft = workspaceViewport.scrollLeft;
+  const startScrollTop = workspaceViewport.scrollTop;
+  const startZoom = state.zoom;
+  const clampedTargetZoom = Math.round(clamp(targetZoom, MIN_ZOOM, MAX_ZOOM) * 100) / 100;
+  const startTime = performance.now();
+
+  return new Promise((resolve) => {
+    const step = (timestamp) => {
+      const t = clamp((timestamp - startTime) / durationMs, 0, 1);
+      const eased = easeInOutCubic(t);
+
+      state.zoom = startZoom + (clampedTargetZoom - startZoom) * eased;
+      workspaceViewport.scrollLeft = startScrollLeft + (targetScrollLeft - startScrollLeft) * eased;
+      workspaceViewport.scrollTop = startScrollTop + (targetScrollTop - startScrollTop) * eased;
+      renderZoom();
+      renderLines();
+
+      if (t < 1) {
+        viewportFocusAnimationFrame = requestAnimationFrame(step);
+        return;
+      }
+
+      viewportFocusAnimationFrame = null;
+      resolve();
+    };
+
+    viewportFocusAnimationFrame = requestAnimationFrame(step);
+  });
+}
+
+function focusViewportOnNode(nodeId, targetZoom, durationMs) {
+  const node = getNode(nodeId);
+  const element = deviceLayer.querySelector(`article[data-node-id="${nodeId}"]`);
+
+  if (!node || !element) {
+    return Promise.resolve();
+  }
+
+  const width = element.getBoundingClientRect().width / state.zoom;
+  const height = element.getBoundingClientRect().height / state.zoom;
+  const worldCenterX = node.position.x + width / 2;
+  const worldCenterY = node.position.y + height / 2;
+
+  return animateViewport(
+    worldCenterX * targetZoom - workspaceViewport.clientWidth / 2,
+    worldCenterY * targetZoom - workspaceViewport.clientHeight / 2,
+    targetZoom,
+    durationMs
+  );
+}
+
+// This purely-cosmetic rAF loop overrides the housing wrapper's inline
+// transform to glide from the old angle to the new one, exactly mirroring
+// how animatePtzTo/renderPtzProjectionCanvases update specific elements per
+// frame without triggering a full re-render (which would just snap
+// instantly, since freshly-built DOM has no prior state for a CSS
+// transition to animate from). Only the housing — the video content's
+// rotation is handled separately (see animateCameraHousingFlip), since it
+// now snaps instantly instead of animating alongside the housing.
+function runCameraHousingFlipAnimation(camera, wasRotated, isRotated) {
+  const existing = cameraRotateAnimations.get(camera.id);
+
+  if (existing) {
+    cancelAnimationFrame(existing);
+  }
+
+  const article = deviceLayer.querySelector(`article[data-node-id="${camera.id}"]`);
+  const housing = article?.querySelector(".node-housing");
+
+  if (!housing) {
+    return Promise.resolve();
+  }
+
+  const startDeg = wasRotated ? 180 : 0;
+  const endDeg = isRotated ? 180 : 0;
+  const startTime = performance.now();
+
+  return new Promise((resolve) => {
+    const step = (timestamp) => {
+      const t = clamp((timestamp - startTime) / CAMERA_ROTATE_ANIMATION_MS, 0, 1);
+      housing.style.transform = `rotate(${startDeg + (endDeg - startDeg) * easeInOutCubic(t)}deg)`;
+
+      if (t < 1) {
+        cameraRotateAnimations.set(camera.id, requestAnimationFrame(step));
+        return;
+      }
+
+      cameraRotateAnimations.delete(camera.id);
+      resolve();
+    };
+
+    cameraRotateAnimations.set(camera.id, requestAnimationFrame(step));
+  });
+}
+
+// Orchestrates the full "operator flips the camera" presentation in two
+// clearly distinct beats, so it's obvious which part is the instant erotate
+// correction and which part is the camera physically being turned:
+//
+//   1. Instant, no animation: the video content snaps straight to its final
+//      rotation right away — this is what erotate actually does on real
+//      hardware (an immediate electronic correction, not a gradual one).
+//      The housing is pinned to its PRE-toggle angle so it does NOT also
+//      jump here — it visibly rotates into place over the next beat instead.
+//   2. Animated: pan/zoom briefly to the camera (100%, so the flip is
+//      clearly visible even off-screen/tiny), then rotate the housing to
+//      "catch up" with the already-snapped video, then return the viewport
+//      to wherever it was.
+//
+// Works identically in both directions (rotating in or back out) — only
+// which way startDeg/endDeg point differs.
+async function animateCameraHousingFlip(camera, wasRotated, isRotated) {
+  if (wasRotated === isRotated) {
+    return;
+  }
+
+  const savedView = { scrollLeft: workspaceViewport.scrollLeft, scrollTop: workspaceViewport.scrollTop, zoom: state.zoom };
+  const article = deviceLayer.querySelector(`article[data-node-id="${camera.id}"]`);
+  const housing = article?.querySelector(".node-housing");
+  const compensate = article?.querySelector(".source-rotated-180-compensate");
+
+  if (compensate) {
+    compensate.style.transform = `rotate(${isRotated ? 180 : 0}deg)`;
+  }
+
+  if (housing) {
+    housing.style.transform = `rotate(${wasRotated ? 180 : 0}deg)`;
+  }
+
+  await focusViewportOnNode(camera.id, 1, CAMERA_ROTATE_VIEWPORT_PAN_MS);
+  await runCameraHousingFlipAnimation(camera, wasRotated, isRotated);
+  await animateViewport(savedView.scrollLeft, savedView.scrollTop, savedView.zoom, CAMERA_ROTATE_VIEWPORT_PAN_MS);
+}
+
 // A tap (release before the hold delay elapses) recalls the preset; holding
 // past the delay saves the camera's current framing into that slot instead.
 // The action fires from pointerdown/pointerup timing directly (like the
@@ -4307,6 +4457,25 @@ function runStreamDeckAction(node, action) {
       const step = action.definitionId === "shutterUp" ? -1 : 1;
       camera.shutterStepIndex = clamp(current + step, 0, STREAM_DECK_SHUTTER_LABELS.length - 1);
       render();
+      return;
+    }
+
+    // Simulates the real button's curl-to-camera-CGI rotate command (see
+    // companion-import.js). This isn't "flip the picture upside down" —
+    // erotate corrects a physically upside-down (e.g. ceiling-mounted)
+    // camera back to a normal-looking picture. So the actual video signal
+    // never changes here; instead the camera's own housing (title/footer,
+    // not the video content) visually flips, animated in slow motion, as
+    // the "this camera is physically inverted" tell — see
+    // animateCameraHousingFlip and renderNodeBody's camera branch.
+    if (action.definitionId === "cameraRotate180" && camera) {
+      const wasRotated = Boolean(camera.rotated180);
+      const isRotated = Boolean(action.rotated);
+
+      recordUndoSnapshot();
+      camera.rotated180 = isRotated;
+      render();
+      animateCameraHousingFlip(camera, wasRotated, isRotated);
       return;
     }
 
