@@ -1376,7 +1376,8 @@ body.is-read-only #openGearLibrary {
   display: block;
 }
 
-.source-rotated-180-compensate {
+.source-rotated-180-compensate,
+.source-rotated-live {
   display: block;
   width: 100%;
   height: 100%;
@@ -2049,6 +2050,7 @@ body.is-read-only #openGearLibrary {
   border-radius: 8px;
   border: 2px solid rgba(255, 255, 255, 0.16);
   background: #050607;
+  overflow: hidden;
 }
 
 .camera-preview {

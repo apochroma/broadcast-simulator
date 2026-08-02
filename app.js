@@ -2201,7 +2201,20 @@ function renderProgramSourcePicture(source) {
   // Mirror exactly what the source node itself is showing (color test pattern,
   // product photo, or live PTZ panorama crop in media mode) instead of forcing
   // the panorama regardless of the camera's own selected view mode.
-  return deviceRenderer.renderSourcePreview(source);
+  const html = deviceRenderer.renderSourcePreview(source);
+
+  if (source.type !== "camera") {
+    return html;
+  }
+
+  // A downstream monitor shows the camera's actual output signal — which,
+  // for the short time a rotate-180 is in progress, briefly looks wrong for
+  // real physical reasons: erotate snaps instantly but the physical mount
+  // hasn't caught up yet (see animateCameraHousingFlip). This wrapper is
+  // flat (0°, visually identical to no wrapper at all) whenever nothing is
+  // animating — it only gets driven, frame by frame, while a flip is
+  // actually in progress.
+  return `<div class="source-rotated-live" data-source-id="${source.id}" style="transform: rotate(0deg);">${html}</div>`;
 }
 
 function isPtzPanoramaSource(source) {
@@ -3825,9 +3838,12 @@ function focusViewportOnNode(nodeId, targetZoom, durationMs) {
 // how animatePtzTo/renderPtzProjectionCanvases update specific elements per
 // frame without triggering a full re-render (which would just snap
 // instantly, since freshly-built DOM has no prior state for a CSS
-// transition to animate from). Only the housing — the video content's
-// rotation is handled separately (see animateCameraHousingFlip), since it
-// now snaps instantly instead of animating alongside the housing.
+// transition to animate from). It also drives every downstream monitor's
+// ".source-rotated-live" wrapper for this camera: their *true* output signal
+// is "current physical mount angle + already-snapped erotate correction",
+// i.e. housing's current animated angle plus the (fixed) target — so as the
+// housing rotates from old to new, each live view visibly un-rotates back to
+// normal in lockstep, exactly matching what a real downstream feed would do.
 function runCameraHousingFlipAnimation(camera, wasRotated, isRotated) {
   const existing = cameraRotateAnimations.get(camera.id);
 
@@ -3837,19 +3853,30 @@ function runCameraHousingFlipAnimation(camera, wasRotated, isRotated) {
 
   const article = deviceLayer.querySelector(`article[data-node-id="${camera.id}"]`);
   const housing = article?.querySelector(".node-housing");
+  const liveViews = Array.from(document.querySelectorAll(`.source-rotated-live[data-source-id="${camera.id}"]`));
 
-  if (!housing) {
+  if (!housing && liveViews.length === 0) {
     return Promise.resolve();
   }
 
   const startDeg = wasRotated ? 180 : 0;
   const endDeg = isRotated ? 180 : 0;
+  const liveTargetDeg = isRotated ? 180 : 0;
   const startTime = performance.now();
 
   return new Promise((resolve) => {
     const step = (timestamp) => {
       const t = clamp((timestamp - startTime) / CAMERA_ROTATE_ANIMATION_MS, 0, 1);
-      housing.style.transform = `rotate(${startDeg + (endDeg - startDeg) * easeInOutCubic(t)}deg)`;
+      const currentDeg = startDeg + (endDeg - startDeg) * easeInOutCubic(t);
+
+      if (housing) {
+        housing.style.transform = `rotate(${currentDeg}deg)`;
+      }
+
+      const liveTransform = `rotate(${currentDeg + liveTargetDeg}deg)`;
+      liveViews.forEach((el) => {
+        el.style.transform = liveTransform;
+      });
 
       if (t < 1) {
         cameraRotateAnimations.set(camera.id, requestAnimationFrame(step));
@@ -3857,6 +3884,13 @@ function runCameraHousingFlipAnimation(camera, wasRotated, isRotated) {
       }
 
       cameraRotateAnimations.delete(camera.id);
+      // Settled: housing and erotate always end up matched (both at the
+      // same target), so the true net rotation is always back to 0 here —
+      // reset to that exactly, rather than leaving accumulated multiples of
+      // 360° sitting in the inline style.
+      liveViews.forEach((el) => {
+        el.style.transform = "rotate(0deg)";
+      });
       resolve();
     };
 
@@ -3889,14 +3923,26 @@ async function animateCameraHousingFlip(camera, wasRotated, isRotated) {
   const article = deviceLayer.querySelector(`article[data-node-id="${camera.id}"]`);
   const housing = article?.querySelector(".node-housing");
   const compensate = article?.querySelector(".source-rotated-180-compensate");
+  const liveViews = document.querySelectorAll(`.source-rotated-live[data-source-id="${camera.id}"]`);
+  const preFlipHousingDeg = wasRotated ? 180 : 0;
+  const liveTargetDeg = isRotated ? 180 : 0;
 
   if (compensate) {
-    compensate.style.transform = `rotate(${isRotated ? 180 : 0}deg)`;
+    compensate.style.transform = `rotate(${liveTargetDeg}deg)`;
   }
 
   if (housing) {
-    housing.style.transform = `rotate(${wasRotated ? 180 : 0}deg)`;
+    housing.style.transform = `rotate(${preFlipHousingDeg}deg)`;
   }
+
+  // Every downstream monitor's feed briefly looks wrong the instant the
+  // button is pressed too — same reason as the camera's own compensate
+  // wrapper above (erotate corrects instantly, the physical mount hasn't
+  // moved yet) — so it needs the exact same synchronous snap, not just the
+  // per-frame updates runCameraHousingFlipAnimation applies once it starts.
+  liveViews.forEach((el) => {
+    el.style.transform = `rotate(${preFlipHousingDeg + liveTargetDeg}deg)`;
+  });
 
   await focusViewportOnNode(camera.id, 1, CAMERA_ROTATE_VIEWPORT_PAN_MS);
   await runCameraHousingFlipAnimation(camera, wasRotated, isRotated);
