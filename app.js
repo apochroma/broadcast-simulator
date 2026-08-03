@@ -4028,8 +4028,17 @@ function startStreamDeckPress(button) {
   const context = { nodeId, cell, step, firedHoldGroup: null };
   streamDeckPressContext = context;
 
+  // Each hold-duration threshold fires independently as it's crossed while
+  // still held — a button can define several (e.g. this file's "Homing all
+  // Cameras": an empty 1000ms checkpoint followed by the real actions at
+  // 2000ms). Only guard against streamDeckPressContext having moved on
+  // (a new press started); do NOT also bail out just because an earlier
+  // (possibly no-op) hold group already fired — that would permanently
+  // block every later threshold from ever running. context.firedHoldGroup
+  // still gets set on every firing so stopStreamDeckPress knows at least one
+  // hold group fired and skips the plain "release" action.
   streamDeckPressTimers = (step.holdGroups ?? []).map((group) => window.setTimeout(() => {
-    if (streamDeckPressContext !== context || context.firedHoldGroup) {
+    if (streamDeckPressContext !== context) {
       return;
     }
 
