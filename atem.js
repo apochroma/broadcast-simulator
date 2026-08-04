@@ -96,12 +96,33 @@
         return;
       }
 
+      // Timestamps the moment REC/ON AIR actually turns on so Stream Deck
+      // buttons showing $(atem:record_duration_hm)/$(atem:stream_duration_hm)
+      // can count up from "since it was pressed" — cleared on stop so the
+      // next recording/stream starts back at 00:00 instead of continuing to
+      // accumulate.
       if (status === "recording") {
-        switcher.isRecording = enabled === "true";
+        const nextValue = enabled === "true";
+
+        if (nextValue && !switcher.isRecording) {
+          switcher.recordingStartedAt = Date.now();
+        } else if (!nextValue) {
+          switcher.recordingStartedAt = null;
+        }
+
+        switcher.isRecording = nextValue;
       }
 
       if (status === "streaming") {
-        switcher.isStreaming = enabled === "true";
+        const nextValue = enabled === "true";
+
+        if (nextValue && !switcher.isStreaming) {
+          switcher.streamingStartedAt = Date.now();
+        } else if (!nextValue) {
+          switcher.streamingStartedAt = null;
+        }
+
+        switcher.isStreaming = nextValue;
       }
 
       this.state.activeSwitcherId = switcher.id;

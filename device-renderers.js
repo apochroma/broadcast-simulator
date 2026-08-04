@@ -524,8 +524,16 @@
       }
 
       return text.replace(
-        /\$\(([^:()]+):(cameraName|exposureShootingMode|aePhotometry|gainValue|gainMode|irisValue|irisMode|shutterValue|shutterMode|autoFocusMode|kelvinValue|aeFlickerReduct|whitebalanceMode|panTiltSpeedValue|digitalZoom)\)/g,
+        /\$\(([^:()]+):(cameraName|exposureShootingMode|aePhotometry|gainValue|gainMode|irisValue|irisMode|shutterValue|shutterMode|autoFocusMode|kelvinValue|aeFlickerReduct|whitebalanceMode|panTiltSpeedValue|digitalZoom|date_weekday|date_d|date_m|date_y|time_hms|stream_duration_hm|record_duration_hm)\)/g,
         (match, label, field) => {
+          // "internal" is Companion's own reserved pseudo-connection for
+          // system values (clock, network info, ...) — not a real module
+          // instance, so it never appears in companionImport.instances and
+          // must be resolved before the label→instance lookup below.
+          if (label === "internal") {
+            return this.resolveStreamDeckInternalField(field) ?? match;
+          }
+
           const entry = Object.entries(node.companionImport.instances).find(([, instance]) => instance.label === label);
 
           if (!entry) {
@@ -533,6 +541,12 @@
           }
 
           const [instanceId, instance] = entry;
+
+          if (field === "stream_duration_hm" || field === "record_duration_hm") {
+            const switcher = this.state.nodes.find((candidate) => candidate.id === node.instanceMap?.[instanceId]);
+            const startedAt = field === "stream_duration_hm" ? switcher?.streamingStartedAt : switcher?.recordingStartedAt;
+            return this.formatStreamDeckDurationHm(startedAt);
+          }
 
           if (field === "cameraName") {
             return node.instanceNames?.[instanceId] ?? this.getDefaultStreamDeckCameraName(instance);
@@ -599,6 +613,48 @@
           return camera?.digitalZoomEnabled ? "ON" : "OFF";
         }
       );
+    }
+
+    // Companion's built-in "internal" system variables — resolved from the
+    // live clock rather than any node/instance state.
+    resolveStreamDeckInternalField(field) {
+      const now = new Date();
+
+      if (field === "date_weekday") {
+        return ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"][now.getDay()];
+      }
+
+      if (field === "date_d") {
+        return String(now.getDate()).padStart(2, "0");
+      }
+
+      if (field === "date_m") {
+        return String(now.getMonth() + 1).padStart(2, "0");
+      }
+
+      if (field === "date_y") {
+        return String(now.getFullYear());
+      }
+
+      if (field === "time_hms") {
+        return [now.getHours(), now.getMinutes(), now.getSeconds()].map((n) => String(n).padStart(2, "0")).join(":");
+      }
+
+      return null;
+    }
+
+    // "00:00" while not (yet) started, otherwise hours:minutes elapsed since
+    // startedAt — matches the "HH:MM" shape of Companion's own *_duration_hm
+    // variables.
+    formatStreamDeckDurationHm(startedAt) {
+      if (!startedAt) {
+        return "00:00";
+      }
+
+      const totalMinutes = Math.max(0, Math.floor((Date.now() - startedAt) / 60000));
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = totalMinutes % 60;
+      return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
     }
 
     renderStreamDeckEmptyState(node) {

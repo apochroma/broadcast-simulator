@@ -22,6 +22,16 @@ Alle 7 Bausteine aus "Grobe Umsetzungsschritte" sind umgesetzt und mit der echte
 
 Ohne Mapping sehen alle Tasten exakt wie im Export aus (Text/Icon/Farbe), reagieren aber auf Klicks nicht — das ist der dokumentierte Fallback aus Punkt 7, kein Fehler.
 
+### Nachträglich entdeckt: Uhrzeit/Datum und Stream-/Record-Dauer (`internal`- und `atem`-Variablen in Button-Text)
+
+Drei bisher unaufgelöste Text-Variablen: `$(internal:date_weekday)`/`date_d`/`date_m`/`date_y`/`time_hms` (Wochentag/Datum/Uhrzeit) sowie `$(atem:stream_duration_hm)`/`record_duration_hm` (Stream-/Aufnahmedauer als HH:MM). `internal` ist Companions reserviertes Pseudo-Modul für Systemwerte — kein echter Instance-Eintrag, wird in `resolveStreamDeckButtonText` daher als Sonderfall VOR der sonst üblichen Label→Instanz-Auflösung behandelt (`resolveStreamDeckInternalField`, liest direkt `new Date()`). `stream_duration_hm`/`record_duration_hm` laufen über die normale Label-Auflösung (Label `atem`/`atem_2`) auf den gemappten Switcher-Node.
+
+Dafür wurde in `atem.js`s `setStatus` ein Zeitstempel ergänzt: `switcher.recordingStartedAt`/`streamingStartedAt` wird beim Wechsel AUS→AN gesetzt (nicht bei jedem `setStatus`-Aufruf, nur beim tatsächlichen Zustandswechsel) und bei AN→AUS wieder auf `null` gesetzt, sodass die nächste Aufnahme/der nächste Stream wieder bei 00:00 beginnt statt weiterzuzählen. `formatStreamDeckDurationHm` rechnet das in ein HH:MM-Format um (00:00 solange nicht gestartet).
+
+Da Uhrzeit und Dauer sich laufend ändern, reicht ein einmaliges Auflösen bei `render()` nicht — ein neuer `setInterval(tickStreamDeckLiveText, 1000)` aktualisiert direkt den Textinhalt der betroffenen `.streamdeck-btn-text`-Elemente jede Sekunde, ohne ein volles `render()` auszulösen (gleiches Prinzip wie bei den übrigen Animationen in dieser Datei — nur die tatsächlich betroffenen Buttons werden per Regex-Check auf `internal:date_`/`time_`/`_duration_hm` erkannt und aktualisiert).
+
+Live verifiziert: Datum/Wochentag/Uhrzeit lösen korrekt auf (z.B. "Montag\n03.08.2026\n20:19:03"), Uhrzeit tickt sichtbar jede Sekunde weiter (20:19:29 → 20:19:31 nach 2.5s Wartezeit) ohne volles Re-Render; `recordingStartedAt` wird nur bei echtem AUS→AN-Übergang neu gesetzt (ein erneuter `setStatus(...,'true')`-Aufruf während bereits laufender Aufnahme verändert den Zeitstempel nicht) und bei AUS wieder gelöscht; Dauer-Berechnung stimmt (5,5 Minuten alter Zeitstempel → "00:05", 65 Minuten alter Zeitstempel → "01:05") — keine Konsolenfehler.
+
 ### Nachträglich entdeckt: "Homing all Cameras" — mehrere Hold-Schwellen pro Taste
 
 Die Taste "Homing all Cameras" (Seite 2) fährt alle Kameras gleichzeitig auf Pan/Tilt 0° zurück (nutzt die bereits unterstützte `canon-ptz`-Aktion `home`, sechsmal — einmal pro Kamera-Instanz), aber erst nach ≥2s gehaltenem Druck, damit sie nicht versehentlich vor/während einer laufenden Produktion ausgelöst wird. Companion-seitig ist das über **zwei** Hold-Duration-Stufen umgesetzt: `action_sets["1000"]` (leer, kein Effekt — vermutlich ein reiner Zwischenschritt/Platzhalter aus dem Companion-Editor) und `action_sets["2000"]` (die eigentlichen 6 `home`-Aktionen).

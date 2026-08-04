@@ -7728,6 +7728,42 @@ document.addEventListener("keyup", updateActivePtzModifierState);
 workspaceViewport.addEventListener("scroll", renderLines);
 window.addEventListener("resize", renderLines);
 
+// Keeps Stream Deck buttons showing the live clock ($(internal:date_*)/
+// time_hms) or a running REC/stream duration ($(atem:*_duration_hm))
+// ticking every second — deliberately updates just those specific button
+// text nodes in place rather than calling the full render(), the same
+// "don't rebuild the whole DOM for a per-frame/per-second cosmetic update"
+// approach used by renderPtzProjectionCanvases and the camera-flip animation.
+function tickStreamDeckLiveText() {
+  document.querySelectorAll("article.node.streamDeckXL").forEach((article) => {
+    const node = getNode(article.dataset.nodeId);
+    const page = node?.companionImport?.pages?.[node.currentPageId];
+
+    if (!page) {
+      return;
+    }
+
+    article.querySelectorAll('[data-action="streamdeck-button"]').forEach((buttonEl) => {
+      const cell = page.buttons.find((entry) => (
+        entry.row === Number(buttonEl.dataset.row) && entry.col === Number(buttonEl.dataset.col)
+      ))?.cell;
+
+      if (!cell?.text || !/\$\(internal:(date_|time_)|:(stream|record)_duration_hm\)/.test(cell.text)) {
+        return;
+      }
+
+      const resolved = deviceRenderer.resolveStreamDeckButtonText(node, cell.text)?.replace(/\\n/g, "\n");
+      const textEl = buttonEl.querySelector(".streamdeck-btn-text");
+
+      if (textEl && resolved !== undefined) {
+        textEl.textContent = resolved;
+      }
+    });
+  });
+}
+
+window.setInterval(tickStreamDeckLiveText, 1000);
+
 if (!loadSetupFromHash()) {
   render();
 }
