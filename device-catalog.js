@@ -102,6 +102,32 @@ window.BroadcastDeviceCatalog = (() => {
         { id: "wireless-out", label: "Wireless", signal: "Wireless", top: 50 }
       ]
     },
+    teradekAce500Receiver: {
+      type: "videoWirelessReceiver",
+      title: "Teradek ACE 500 RX",
+      kicker: "Funkempfänger Video",
+      capabilities: ["signal-cross-conversion", "wireless-receiver"],
+      width: 240,
+      inputs: [
+        { id: "wireless-in", label: "Wireless", signal: "Wireless", top: 50 }
+      ],
+      outputs: [
+        { id: "hdmi-out", label: "HDMI Out", signal: "HDMI", top: 50 }
+      ]
+    },
+    teradekAce500Transmitter: {
+      type: "videoWirelessTransmitter",
+      title: "Teradek ACE 500 TX",
+      kicker: "Funksender Video",
+      capabilities: ["signal-cross-conversion", "wireless-transmitter"],
+      width: 240,
+      inputs: [
+        { id: "hdmi-in", label: "HDMI In", signal: "HDMI", top: 50 }
+      ],
+      outputs: [
+        { id: "wireless-out", label: "Wireless", signal: "Wireless", top: 50 }
+      ]
+    },
     soundDevicesMixPre3: {
       type: "audioRecorder",
       title: "Sound Devices MixPre-3 II",
@@ -169,6 +195,7 @@ window.BroadcastDeviceCatalog = (() => {
     ["networkSwitch16", "Netzwerk", "PoE Netzwerk-Switch 16-Port", "16x LAN"],
     ["networkSwitch24", "Netzwerk", "PoE Netzwerk-Switch 24-Port", "24x LAN"],
     ["rodeWirelessGo2Set", "RODE", "Wireless GO II (Set)", "1x Receiver + 2x Transmitter, 3.5mm Mic Out, koppelt drahtlos"],
+    ["teradekAce500Set", "Teradek", "ACE 500 TX/RX Set", "1x Sender (HDMI In) + 1x Empfänger (HDMI Out), koppelt drahtlos"],
     ["soundDevicesMixPre3", "Sound Devices", "MixPre-3 II", "3x XLR Mic/Line, Aux In, TC In, Line-/Kopfhörer-Out, USB-C"],
     ["behringerC2Set", "Behringer", "C-2 Stereoset", "2x Kondensatormikrofon, XLR Out, Niere, paarweise abgeglichen"],
     ["streamDeckXL", "Elgato", "Stream Deck XL", "8x4 Tasten, USB-C, Companion-Konfiguration importierbar"]

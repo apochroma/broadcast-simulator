@@ -1454,6 +1454,27 @@ body.is-read-only #openGearLibrary {
   color: #e4d8ff;
 }
 
+.teradek-face {
+  min-height: 96px;
+  color: #ffd6ea;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: center;
+  line-height: 1.4;
+}
+
+.teradek-face.is-transmitter {
+  background:
+    linear-gradient(135deg, rgba(255, 111, 179, 0.22), rgba(255, 255, 255, 0.06)),
+    #10151a;
+}
+
+.teradek-face.is-receiver {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.06), rgba(255, 111, 179, 0.22)),
+    #10151a;
+}
+
 .streamdeck-panel {
   display: flex;
   flex-direction: column;

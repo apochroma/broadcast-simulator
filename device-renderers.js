@@ -193,6 +193,28 @@
         return this.renderRodeTransmitter(node);
       }
 
+      if (node.type === "videoWirelessTransmitter") {
+        const source = this.callbacks.resolveNodeInputSource(node, "hdmi-in");
+        return `
+          <div class="simple-device-face teradek-face is-transmitter">TERADEK<br>ACE 500 TX</div>
+          <div class="node-meta">
+            <span>Funksender Video</span>
+            <span>${source ? source.shortName : "No Signal"}</span>
+          </div>
+        `;
+      }
+
+      if (node.type === "videoWirelessReceiver") {
+        const source = this.callbacks.resolveTeradekReceiverSource(node);
+        return `
+          <div class="simple-device-face teradek-face is-receiver">TERADEK<br>ACE 500 RX</div>
+          <div class="node-meta">
+            <span>Funkempfänger Video</span>
+            <span>${source ? source.shortName : "No Signal"}</span>
+          </div>
+        `;
+      }
+
       if (node.type === "converter") {
         return this.renderMicroConverter(node);
       }

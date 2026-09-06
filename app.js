@@ -284,6 +284,34 @@ function addRodeWirelessSet() {
   render();
 }
 
+// Video link, not audio: TX takes an HDMI In, RX hands the signal back out
+// its HDMI Out over the air — same "real state.connections entry pinned to
+// signal: Wireless" pattern as the RODE kit above, just video instead of
+// audio (see resolveSourceFromPort/resolveTransitionFromPort's
+// "videoWirelessReceiver" cases for how the HDMI signal is carried through).
+function addTeradekAce500Set() {
+  if (state.readOnly) {
+    return;
+  }
+
+  addGear("teradekAce500Transmitter");
+  const transmitter = state.nodes.at(-1);
+
+  addGear("teradekAce500Receiver");
+  const receiver = state.nodes.at(-1);
+  receiver.position = {
+    x: transmitter.position.x + transmitter.width + 60,
+    y: transmitter.position.y
+  };
+
+  state.connections.push(
+    { signal: "Wireless", from: { nodeId: transmitter.id, portId: "wireless-out" }, to: { nodeId: receiver.id, portId: "wireless-in" } }
+  );
+
+  setSelectedNodes([transmitter.id, receiver.id], transmitter.id);
+  render();
+}
+
 // The Behringer C-2 is sold and used as a matched stereo pair, so the catalog
 // offers it as a single "kit" entry that drops both mics at once, side by
 // side — two fully independent nodes from here on, same as the RODE kit
@@ -2109,6 +2137,22 @@ function resolveTransitionFromPort(portRef, visited = new Set()) {
     return inputConnection ? resolveTransitionFromPort(inputConnection.from, visited) : null;
   }
 
+  if (node.type === "videoWirelessReceiver" && portRef.portId === "hdmi-out") {
+    const wirelessLink = state.connections.find((connection) => (
+      connection.to.nodeId === node.id && connection.to.portId === "wireless-in"
+    ));
+
+    if (!wirelessLink) {
+      return null;
+    }
+
+    const txInputConnection = state.connections.find((connection) => (
+      connection.to.nodeId === wirelessLink.from.nodeId && connection.to.portId === "hdmi-in"
+    ));
+
+    return txInputConnection ? resolveTransitionFromPort(txInputConnection.from, visited) : null;
+  }
+
   return null;
 }
 
@@ -2832,6 +2876,17 @@ function resolveSourceFromPort(portRef, visited = new Set()) {
     return crossInputPortId ? resolveNodeInputSource(node, crossInputPortId, visited) : null;
   }
 
+  if (node.type === "videoWirelessReceiver" && portRef.portId === "hdmi-out") {
+    // The RX has no HDMI input of its own — whatever feeds the paired TX's
+    // HDMI In comes back out here, carried over the (virtual, signal:
+    // "Wireless") link between the two nodes instead of a real cable.
+    const wirelessLink = state.connections.find((item) => (
+      item.to.nodeId === node.id && item.to.portId === "wireless-in"
+    ));
+
+    return wirelessLink ? resolveNodeInputSource(getNode(wirelessLink.from.nodeId), "hdmi-in", visited) : null;
+  }
+
   if (node.type === "audioRecorder") {
     // The mixer has no per-channel mute/fader modeled, so all of its outputs
     // just report whichever input is actually plugged in first, checked in
@@ -2848,6 +2903,14 @@ function resolveSourceFromPort(portRef, visited = new Set()) {
   }
 
   return null;
+}
+
+// The RX's own node face wants to show what it's currently receiving, but
+// resolveNodeInputSource only walks from an INPUT port — "hdmi-out" is the
+// RX's output, so it has to go through resolveSourceFromPort directly
+// instead (which is where the actual TX-lookup logic lives, see above).
+function resolveTeradekReceiverSource(node) {
+  return resolveSourceFromPort({ nodeId: node.id, portId: "hdmi-out" });
 }
 
 function renderLines() {
@@ -3125,7 +3188,8 @@ deviceRenderer = new BroadcastDeviceRenderers.DeviceRenderer({
     renderMonitorPicture,
     renderPtzPanoramaPicture,
     renderSwitcherPanel,
-    resolveNodeInputSource
+    resolveNodeInputSource,
+    resolveTeradekReceiverSource
   },
   config: {
     signalColors,
@@ -6447,6 +6511,8 @@ gearList.addEventListener("click", (event) => {
 
   if (button.dataset.addGear === "rodeWirelessGo2Set") {
     addRodeWirelessSet();
+  } else if (button.dataset.addGear === "teradekAce500Set") {
+    addTeradekAce500Set();
   } else if (button.dataset.addGear === "behringerC2Set") {
     addBehringerC2Set();
   } else if (button.dataset.addGear === "streamDeckXL") {
