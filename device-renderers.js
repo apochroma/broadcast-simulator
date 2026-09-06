@@ -35,6 +35,13 @@
         this.callbacks.ensureSwitcherMediaPools(node);
       }
 
+      // No card, no header, no discrete ports — just the cloud shape itself,
+      // which cables snap onto anywhere along its outline (see
+      // connections.js). Bypasses the whole card/socket machinery below.
+      if (node.type === "internetCloud") {
+        return this.renderInternetCloudNode(node);
+      }
+
       const activeSwitcher = this.callbacks.getActiveSwitcher();
       const programSource = this.callbacks.getSwitcherProgramSource(activeSwitcher);
       const previewSource = this.callbacks.getSwitcherPreviewSource(activeSwitcher);
@@ -85,6 +92,41 @@
             <div class="node-body">
               ${this.renderNodeBody(node)}
             </div>
+          </div>
+        </article>
+      `;
+    }
+
+    // Chromeless: no header bar, no bordered card, no visible sockets — the
+    // cloud shape itself is the whole node. The gear/remove buttons float
+    // over it, revealed on hover/selection only (see CSS), and the shape
+    // itself is the drag handle. The path carries the "internet-cloud-
+    // contour" class connections.js queries for at drag-snap and render time.
+    renderInternetCloudNode(node) {
+      const classes = [
+        "node",
+        "internetCloud",
+        "is-chromeless",
+        this.callbacks.isNodeSelected(node.id) ? "is-selected" : ""
+      ].filter(Boolean).join(" ");
+
+      return `
+        <article class="${classes}"
+          data-node-id="${node.id}"
+          style="width: ${node.width}px; transform: translate(${node.position.x}px, ${node.position.y}px) rotate(${node.rotation ?? 0}deg);">
+          <div class="internet-cloud-shape drag-handle">
+            <svg viewBox="0 0 24 24" class="internet-cloud-icon" aria-hidden="true">
+              <path class="internet-cloud-contour" d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/>
+            </svg>
+            <span class="internet-cloud-label">INTERNET</span>
+          </div>
+          <div class="internet-cloud-actions ${this.state.readOnly ? "is-hidden" : ""}">
+            <button class="small-button icon-button" type="button" data-action="edit-node" data-node-id="${node.id}" title="Bearbeiten" aria-label="Bearbeiten">
+              ${this.icons.edit}
+            </button>
+            <button class="small-button icon-button danger" type="button" data-action="remove-node" data-node-id="${node.id}" title="Entfernen" aria-label="Entfernen">
+              ${this.icons.remove}
+            </button>
           </div>
         </article>
       `;
@@ -182,6 +224,27 @@
       if (node.type === "networkSwitch") {
         return `
           <div class="simple-device-face network-switch-face" style="min-height: ${node.portCount * node.portColumnPitch}px">PoE Switch<br>${node.portCount}-Port</div>
+        `;
+      }
+
+      if (node.type === "poeInjector") {
+        return this.renderPoeInjectorPanel(node);
+      }
+
+      if (node.type === "networkGateway" || node.type === "router") {
+        const isRouter = node.type === "router";
+
+        return `
+          <div class="simple-device-face network-gateway-face">
+            ${this.renderNetworkGatewayIpRow(node, "ipAddress", "IP")}
+            ${this.renderNetworkGatewayIpRow(node, "subnetMask", "Subnet")}
+            ${this.renderNetworkGatewayIpRow(node, "gatewayAddress", "Gateway")}
+            ${this.renderNetworkGatewayDhcpRow(node)}
+          </div>
+          <div class="node-meta">
+            <span>${isRouter ? "Router" : "Router / Gateway"}</span>
+            <span>${isRouter ? "1x WAN &middot; 3x LAN &middot; 1x Internet" : "1x WAN &middot; 4x LAN"}</span>
+          </div>
         `;
       }
 
@@ -384,6 +447,15 @@
         </div>
         <div class="node-meta">
           <span>${node.inputs.length} In / ${node.outputs.length} Out</span>
+        </div>
+      `;
+    }
+
+    renderPoeInjectorPanel(node) {
+      return `
+        <div class="node-meta">
+          <span>PoE Injector</span>
+          <span>802.3at &middot; Gigabit</span>
         </div>
       `;
     }
@@ -928,6 +1000,48 @@
       return "Farbe";
     }
 
+    // Three stacked "xxx.xxx.xxx.xxx" rows (IP/Subnet/Gateway) editable
+    // directly on the node face — purely informational bookkeeping (no
+    // validation against the actual scene's cabling), stored per-field as a
+    // 4-element octet array on the node, defaulting to blank until edited.
+    renderNetworkGatewayIpRow(node, field, label) {
+      const octets = node[field] ?? ["", "", "", ""];
+      const inputs = octets
+        .map((value, index) => `
+          <input type="text" class="network-gateway-octet" inputmode="numeric" maxlength="3"
+            data-action="network-gateway-set-octet" data-node-id="${node.id}" data-field="${field}" data-index="${index}"
+            value="${escapeHtml(value ?? "")}" placeholder="0">
+        `)
+        .join('<span class="network-gateway-dot">.</span>');
+
+      return `
+        <div class="network-gateway-ip-row">
+          <span class="network-gateway-ip-label">${label}</span>
+          <span class="network-gateway-octets">${inputs}</span>
+        </div>
+      `;
+    }
+
+    // Just the last-octet start/end of the DHCP pool (e.g. "100 - 199"),
+    // not full addresses — two inputs instead of four, dash instead of dots.
+    renderNetworkGatewayDhcpRow(node) {
+      const range = node.dhcpRange ?? ["", ""];
+      const inputs = range
+        .map((value, index) => `
+          <input type="text" class="network-gateway-octet" inputmode="numeric" maxlength="3"
+            data-action="network-gateway-set-dhcp" data-node-id="${node.id}" data-index="${index}"
+            value="${escapeHtml(value ?? "")}" placeholder="${index === 0 ? "100" : "199"}">
+        `)
+        .join('<span class="network-gateway-dot">&ndash;</span>');
+
+      return `
+        <div class="network-gateway-ip-row">
+          <span class="network-gateway-ip-label">DHCP</span>
+          <span class="network-gateway-octets">${inputs}</span>
+        </div>
+      `;
+    }
+
     renderSockets(node, direction) {
       const ports = node[`${direction}s`] ?? [];
 
@@ -939,8 +1053,12 @@
         // A port's card edge is usually implied by its direction (input=left,
         // output=right), but some devices group jacks by connector type
         // instead - `port.edge` lets a port opt out of that default without
-        // touching its actual input/output connection semantics.
+        // touching its actual input/output connection semantics. "free"
+        // (used by the internet cloud, whose ports sit anywhere around an
+        // organic outline rather than a rectangular edge) additionally
+        // supplies its own `port.left` percentage instead of pinning to 0%/100%.
         const edge = port.edge ?? (direction === "input" ? "left" : "right");
+        const leftPosition = edge === "free" && port.left !== undefined ? ` left: ${port.left}%;` : "";
 
         return `
           <button class="socket is-${direction} is-edge-${edge} ${selected ? "is-selected" : ""}"
@@ -950,7 +1068,7 @@
             data-port-id="${port.id}"
             data-direction="${direction}"
             data-signal="${port.signal}"
-            style="${position} --socket-color: ${this.config.signalColors[port.signal] ?? this.config.signalColors.SDI}"
+            style="${position}${leftPosition} --socket-color: ${this.config.signalColors[port.signal] ?? this.config.signalColors.SDI}"
             title="${port.label} (${port.signal})">
             <span class="socket-label">${port.label}</span>
           </button>

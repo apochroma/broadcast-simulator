@@ -17,6 +17,8 @@
   --signal-network: #9b7bff;
   --signal-wireless: #ff6fb3;
   --signal-timecode: #57d9a3;
+  --signal-broadband: #e8590c;
+  --signal-fiber: #ffd60a;
   --audio-note-1: #d65aff;
   --audio-note-2: #ff4f6a;
   --audio-note-3: #55e6a5;
@@ -1452,6 +1454,115 @@ body.is-read-only #openGearLibrary {
 .network-switch-face {
   min-height: 74px;
   color: #e4d8ff;
+}
+
+.network-gateway-face {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  min-height: 230px;
+  padding: 10px 14px;
+  color: #d6ecff;
+  background:
+    linear-gradient(135deg, rgba(13, 110, 253, 0.24), rgba(255, 255, 255, 0.06)),
+    #10151a;
+}
+
+.network-gateway-ip-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.network-gateway-ip-label {
+  width: 52px;
+  flex-shrink: 0;
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #9fc4ff;
+  text-align: right;
+}
+
+.network-gateway-octets {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.network-gateway-octet {
+  width: 32px;
+  padding: 3px 2px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  font-size: 0.68rem;
+  text-align: center;
+}
+
+.network-gateway-octet:focus {
+  outline: none;
+  border-color: #4c9cf0;
+}
+
+.network-gateway-dot {
+  color: rgba(255, 255, 255, 0.5);
+  font-weight: 700;
+}
+
+.node.internetCloud.is-chromeless {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.internet-cloud-shape {
+  position: relative;
+  cursor: grab;
+}
+
+.internet-cloud-shape:active {
+  cursor: grabbing;
+}
+
+.internet-cloud-icon {
+  display: block;
+  width: 100%;
+  height: auto;
+  fill: #e7edf4;
+  filter: drop-shadow(0 4px 14px rgba(0, 0, 0, 0.45));
+}
+
+.internet-cloud-label {
+  position: absolute;
+  top: 58%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #202b38;
+  font-size: 0.85rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.internet-cloud-actions {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.node.internetCloud:hover .internet-cloud-actions,
+.node.internetCloud.is-selected .internet-cloud-actions {
+  opacity: 1;
 }
 
 .teradek-face {
@@ -3531,6 +3642,13 @@ body.is-read-only #openGearLibrary {
 
 .socket.is-edge-right .socket-label {
   left: 22px;
+}
+
+.socket.is-edge-free .socket-label {
+  top: auto;
+  bottom: -16px;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
 .record-dot {

@@ -77,6 +77,76 @@ window.BroadcastDeviceCatalog = (() => {
     networkSwitch8: makeNetworkSwitchTemplate("PoE Netzwerk-Switch 8-Port", 8),
     networkSwitch16: makeNetworkSwitchTemplate("PoE Netzwerk-Switch 16-Port", 16),
     networkSwitch24: makeNetworkSwitchTemplate("PoE Netzwerk-Switch 24-Port", 24),
+    unifiCloudGatewayUltra: {
+      type: "networkGateway",
+      title: "UniFi Cloud Gateway Ultra",
+      kicker: "Router / Gateway",
+      capabilities: ["network-gateway", "router"],
+      width: 300,
+      // `top` on a port is a PERCENTAGE of the whole card's height (see
+      // renderSockets), not pixels — spread across a wide band so all 5
+      // ports land clear of both the header above and the taller
+      // network-gateway-face content below instead of bunching near 100%.
+      inputs: [
+        { id: "wan", label: "WAN (2.5GbE)", signal: "LAN", top: 30 },
+        { id: "lan-1", label: "LAN 1", signal: "LAN", top: 42 },
+        { id: "lan-2", label: "LAN 2", signal: "LAN", top: 54 },
+        { id: "lan-3", label: "LAN 3", signal: "LAN", top: 66 },
+        { id: "lan-4", label: "LAN 4", signal: "LAN", top: 78 }
+      ],
+      outputs: []
+    },
+    router: {
+      type: "router",
+      title: "Router",
+      kicker: "Router",
+      capabilities: ["network-gateway", "router"],
+      width: 300,
+      // WAN + LAN cluster on the left (input side, same "leaf cables plug
+      // into me" role as the Cloud Gateway's ports); a single separate
+      // "Internet" jack on the right (output side) so the cable toward the
+      // internet cloud can leave from the opposite edge instead of doubling
+      // back past the local LAN cabling.
+      inputs: [
+        { id: "wan", label: "WAN", signal: "LAN", top: 32 },
+        { id: "lan-1", label: "LAN 1", signal: "LAN", top: 46 },
+        { id: "lan-2", label: "LAN 2", signal: "LAN", top: 60 },
+        { id: "lan-3", label: "LAN 3", signal: "LAN", top: 74 }
+      ],
+      outputs: [
+        { id: "internet", label: "Internet", signal: "LAN", top: 50 }
+      ]
+    },
+    poeInjectorAt: {
+      type: "poeInjector",
+      title: "PoE+ Injector",
+      kicker: "PoE Injector",
+      capabilities: ["poe-injector"],
+      width: 220,
+      // "LAN" plugs into an upstream switch/gateway (same role as a camera's
+      // own LAN port, hence output-typed to match its input-typed jacks);
+      // "PoE+" is where the powered downstream device's own LAN output
+      // plugs in (same role as a switch's/gateway's ports).
+      outputs: [
+        { id: "lan-in", label: "LAN", signal: "LAN", top: 35 }
+      ],
+      inputs: [
+        { id: "poe-out", label: "PoE+", signal: "LAN", top: 65 }
+      ]
+    },
+    internetCloud: {
+      type: "internetCloud",
+      title: "Internet",
+      kicker: "WAN / VPN",
+      capabilities: ["internet-uplink"],
+      width: 260,
+      // No discrete ports at all — a cable snaps onto the nearest point of
+      // the cloud's own SVG outline (see connections.js' contour-snap logic
+      // and renderNode's chromeless "internetCloud" branch in
+      // device-renderers.js), compatible with LAN/Breitband/Glasfaser.
+      inputs: [],
+      outputs: []
+    },
     rodeWirelessGo2Receiver: {
       type: "wirelessReceiver",
       title: "RODE Wireless GO II Receiver",
@@ -194,6 +264,10 @@ window.BroadcastDeviceCatalog = (() => {
     ["networkSwitch8", "Netzwerk", "PoE Netzwerk-Switch 8-Port", "8x LAN"],
     ["networkSwitch16", "Netzwerk", "PoE Netzwerk-Switch 16-Port", "16x LAN"],
     ["networkSwitch24", "Netzwerk", "PoE Netzwerk-Switch 24-Port", "24x LAN"],
+    ["unifiCloudGatewayUltra", "Ubiquiti UniFi", "Cloud Gateway Ultra", "1x WAN 2.5GbE, 4x LAN 1GbE, UniFi OS Controller"],
+    ["router", "Netzwerk", "Router", "1x WAN, 3x LAN, 1x Internet-Anschluss auf der Gegenseite"],
+    ["poeInjectorAt", "Ubiquiti UniFi", "PoE+ Injector", "1x LAN In, 1x PoE+ Out, 802.3at, Gigabit"],
+    ["internetCloud", "Netzwerk", "Internet", "Generischer WAN/VPN-Uplink, verbindet LAN, Breitband oder Glasfaser"],
     ["rodeWirelessGo2Set", "RODE", "Wireless GO II (Set)", "1x Receiver + 2x Transmitter, 3.5mm Mic Out, koppelt drahtlos"],
     ["teradekAce500Set", "Teradek", "ACE 500 TX/RX Set", "1x Sender (HDMI In) + 1x Empfänger (HDMI Out), koppelt drahtlos"],
     ["soundDevicesMixPre3", "Sound Devices", "MixPre-3 II", "3x XLR Mic/Line, Aux In, TC In, Line-/Kopfhörer-Out, USB-C"],

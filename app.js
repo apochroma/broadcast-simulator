@@ -12,7 +12,9 @@ const signalColors = {
   XLR: cssVar("--signal-audio"),
   Network: cssVar("--signal-network"),
   Wireless: cssVar("--signal-wireless"),
-  Timecode: cssVar("--signal-timecode")
+  Timecode: cssVar("--signal-timecode"),
+  Breitband: cssVar("--signal-broadband"),
+  Glasfaser: cssVar("--signal-fiber")
 };
 
 const uiIcons = {
@@ -281,6 +283,51 @@ function addRodeWirelessSet() {
   );
 
   setSelectedNodes([receiver.id, transmitter1.id, transmitter2.id], receiver.id);
+  render();
+}
+
+// Each gateway added to the scene gets its own /24 out of a shared
+// 10.10.x.0 plan — the third octet steps by 10 per existing gateway
+// (10.10.10.x, 10.10.20.x, 10.10.30.x, ...) so multiple UCGs never default
+// to overlapping subnets.
+function addUnifiCloudGatewayUltra() {
+  if (state.readOnly) {
+    return;
+  }
+
+  const existingCount = state.nodes.filter((node) => node.type === "networkGateway").length;
+  const subnetOctet = String(10 + existingCount * 10);
+
+  addGear("unifiCloudGatewayUltra");
+  const gateway = state.nodes.at(-1);
+
+  gateway.ipAddress = ["10", "10", subnetOctet, "254"];
+  gateway.subnetMask = ["255", "255", "255", "0"];
+  gateway.gatewayAddress = ["10", "10", subnetOctet, "1"];
+  gateway.dhcpRange = ["100", "199"];
+
+  render();
+}
+
+// Mirrors addUnifiCloudGatewayUltra's auto-incrementing subnet plan, but
+// keyed off "router" nodes specifically — adding routers and UCGs each keep
+// their own independent counter, so one doesn't skip subnets for the other.
+function addRouterDevice() {
+  if (state.readOnly) {
+    return;
+  }
+
+  const existingCount = state.nodes.filter((node) => node.type === "router").length;
+  const subnetOctet = String(10 + existingCount * 10);
+
+  addGear("router");
+  const router = state.nodes.at(-1);
+
+  router.ipAddress = ["10", "10", subnetOctet, "254"];
+  router.subnetMask = ["255", "255", "255", "0"];
+  router.gatewayAddress = ["10", "10", subnetOctet, "1"];
+  router.dhcpRange = ["100", "199"];
+
   render();
 }
 
@@ -4314,6 +4361,41 @@ function setStreamDeckInstanceMapping(nodeId, instanceId, targetNodeId) {
   render();
 }
 
+// Purely informational bookkeeping on the gateway's own node — one octet at
+// a time, matching how the face renders four separate inputs per row rather
+// than a single free-text address field.
+function setNetworkGatewayOctet(nodeId, field, index, value) {
+  const node = getNode(nodeId);
+
+  if (!node || (node.type !== "networkGateway" && node.type !== "router")) {
+    return;
+  }
+
+  recordUndoSnapshot();
+  const octets = [...(node[field] ?? ["", "", "", ""])];
+  const trimmed = value.trim();
+  octets[Number(index)] = trimmed === "" ? "" : String(clamp(Math.round(Number(trimmed)) || 0, 0, 255));
+  node[field] = octets;
+  render();
+}
+
+// The DHCP row is just the last-octet start/end of the pool (e.g. 100-199),
+// not full addresses, but reuses the same single-octet 0-255 clamp.
+function setNetworkGatewayDhcpField(nodeId, index, value) {
+  const node = getNode(nodeId);
+
+  if (!node || (node.type !== "networkGateway" && node.type !== "router")) {
+    return;
+  }
+
+  recordUndoSnapshot();
+  const range = [...(node.dhcpRange ?? ["", ""])];
+  const trimmed = value.trim();
+  range[Number(index)] = trimmed === "" ? "" : String(clamp(Math.round(Number(trimmed)) || 0, 0, 255));
+  node.dhcpRange = range;
+  render();
+}
+
 // Companion buttons often reference "$(<instance label>:cameraName)" in their
 // text — a variable Companion itself resolves from a name the user typed into
 // its own UI. We don't import that name (it isn't in the button/page data,
@@ -5713,14 +5795,32 @@ function isDialogOpen() {
   return Boolean(document.querySelector("dialog[open]"));
 }
 
+// LAN/Breitband/Glasfaser jacks are all treated as bidirectional, so any two
+// of these may be cabled together (e.g. switch-to-switch uplinks), unlike
+// video signals which need a strict output->input pairing.
+const NETWORK_SIGNALS = new Set(["LAN", "Breitband", "Glasfaser"]);
+
 function isValidConnection(from, to) {
-  if (from.nodeId === to.nodeId || from.signal !== to.signal) {
+  if (from.nodeId === to.nodeId) {
     return false;
   }
 
-  if (from.signal === "LAN") {
-    // LAN jacks are bidirectional, so any two LAN ports may be cabled
-    // together (e.g. switch-to-switch uplinks), unlike video signals.
+  // The internet "cloud" is a generic uplink target — it doesn't care
+  // whether the other end is a plain LAN cable, a broadband modem, or a
+  // fiber ONT, so any network-type port may reach any of its contour ports
+  // even when the exact signal label differs (the cable itself still keeps
+  // and displays its own real signal/color, only the validity check relaxes).
+  const involvesCloud = getNode(from.nodeId)?.type === "internetCloud" || getNode(to.nodeId)?.type === "internetCloud";
+
+  if (involvesCloud && NETWORK_SIGNALS.has(from.signal) && NETWORK_SIGNALS.has(to.signal)) {
+    return true;
+  }
+
+  if (from.signal !== to.signal) {
+    return false;
+  }
+
+  if (NETWORK_SIGNALS.has(from.signal)) {
     return true;
   }
 
@@ -6513,6 +6613,10 @@ gearList.addEventListener("click", (event) => {
     addRodeWirelessSet();
   } else if (button.dataset.addGear === "teradekAce500Set") {
     addTeradekAce500Set();
+  } else if (button.dataset.addGear === "unifiCloudGatewayUltra") {
+    addUnifiCloudGatewayUltra();
+  } else if (button.dataset.addGear === "router") {
+    addRouterDevice();
   } else if (button.dataset.addGear === "behringerC2Set") {
     addBehringerC2Set();
   } else if (button.dataset.addGear === "streamDeckXL") {
@@ -6877,6 +6981,20 @@ deviceLayer.addEventListener("change", (event) => {
 
   if (nameInput) {
     setStreamDeckInstanceName(nameInput.dataset.nodeId, nameInput.dataset.instanceId, nameInput.value.trim());
+    return;
+  }
+
+  const octetInput = event.target.closest('[data-action="network-gateway-set-octet"]');
+
+  if (octetInput) {
+    setNetworkGatewayOctet(octetInput.dataset.nodeId, octetInput.dataset.field, octetInput.dataset.index, octetInput.value);
+    return;
+  }
+
+  const dhcpInput = event.target.closest('[data-action="network-gateway-set-dhcp"]');
+
+  if (dhcpInput) {
+    setNetworkGatewayDhcpField(dhcpInput.dataset.nodeId, dhcpInput.dataset.index, dhcpInput.value);
   }
 });
 

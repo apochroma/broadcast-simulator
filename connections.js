@@ -2,6 +2,21 @@ window.BroadcastConnections = (() => {
   const SVG_NS = "http://www.w3.org/2000/svg";
   const XLINK_NS = "http://www.w3.org/1999/xlink";
 
+  // A cable landing on the internet cloud isn't plugged into any real named
+  // port — it snaps onto the nearest point of the cloud's own SVG outline
+  // instead (see findCloudContourSnap). That point is encoded straight into
+  // a synthetic portId string ("contour-<t>", t = 0..1 fraction along the
+  // path's total length) so it flows through every existing
+  // connection/dedup/lookup codepath that already treats portId as an
+  // opaque string, and only the anchor-position and drag-snap logic here
+  // need to know the string's special meaning.
+  const CONTOUR_PORT_PREFIX = "contour-";
+  const CLOUD_COMPATIBLE_SIGNALS = new Set(["LAN", "Breitband", "Glasfaser"]);
+
+  function isContourPortId(portId) {
+    return typeof portId === "string" && portId.startsWith(CONTOUR_PORT_PREFIX);
+  }
+
   function renderConnections({
     activeDrag,
     cableLayer,
@@ -22,10 +37,10 @@ window.BroadcastConnections = (() => {
     cableLayer.innerHTML = "";
 
     connections.forEach((connection, index) => {
-      const fromSocket = getSocketElement(deviceLayer, connection.from);
-      const toSocket = getSocketElement(deviceLayer, connection.to);
+      const start = resolveConnectionAnchor(connection.from, deviceLayer, workspaceRect, zoom);
+      const end = resolveConnectionAnchor(connection.to, deviceLayer, workspaceRect, zoom);
 
-      if (!fromSocket || !toSocket) {
+      if (!start || !end) {
         return;
       }
 
@@ -34,13 +49,13 @@ window.BroadcastConnections = (() => {
         cableLayer,
         className: getClassName(connection),
         connectionIndex: index,
-        end: getSocketAnchor(toSocket, workspaceRect, zoom),
+        end,
         label: getLabel(connection),
         pathId: `cable-path-${index}`,
         selected: selectedConnectionIndex === index,
         signal: connection.signal,
         signalColors,
-        start: getSocketAnchor(fromSocket, workspaceRect, zoom)
+        start
       });
     });
 
@@ -57,6 +72,22 @@ window.BroadcastConnections = (() => {
         start: activeDrag.start
       });
     }
+  }
+
+  function resolveConnectionAnchor(socket, deviceLayer, workspaceRect, zoom) {
+    if (isContourPortId(socket.portId)) {
+      const pathElement = getCloudContourElement(deviceLayer, socket.nodeId);
+      const t = Number(socket.portId.slice(CONTOUR_PORT_PREFIX.length));
+
+      return pathElement ? getContourAnchor(pathElement, t, workspaceRect, zoom) : null;
+    }
+
+    const socketElement = getSocketElement(deviceLayer, socket);
+    return socketElement ? getSocketAnchor(socketElement, workspaceRect, zoom) : null;
+  }
+
+  function getCloudContourElement(deviceLayer, nodeId) {
+    return deviceLayer.querySelector(`[data-node-id="${nodeId}"] .internet-cloud-contour`);
   }
 
   function getSocketElement(deviceLayer, socket) {
@@ -77,6 +108,127 @@ window.BroadcastConnections = (() => {
       ...getSocketCenter(socket, workspaceRect, zoom),
       side: socket.dataset.direction === "output" ? 1 : -1
     };
+  }
+
+  // getScreenCTM() reflects the path's *actual current* transform to screen
+  // pixels — it already accounts for the workspace's CSS zoom scale and the
+  // cloud node's own translate(), so converting a local path point through it
+  // needs no manual bounding-box math, unlike getSocketCenter above.
+  function pathPointToClient(pathElement, x, y) {
+    const ctm = pathElement.getScreenCTM();
+
+    if (!ctm) {
+      return null;
+    }
+
+    const svgPoint = pathElement.ownerSVGElement.createSVGPoint();
+    svgPoint.x = x;
+    svgPoint.y = y;
+    const clientPoint = svgPoint.matrixTransform(ctm);
+    return { x: clientPoint.x, y: clientPoint.y };
+  }
+
+  const CONTOUR_SAMPLE_COUNT = 80;
+
+  // Nearest point on the path to an arbitrary CLIENT (screen) position —
+  // used both to find where a dragged cable would snap (comparing against
+  // the pointer) and, given a stored t, to redraw an already-snapped cable
+  // at render time.
+  function getNearestContourPoint(pathElement, clientX, clientY) {
+    const ctm = pathElement.getScreenCTM();
+
+    if (!ctm) {
+      return null;
+    }
+
+    const inverseCtm = ctm.inverse();
+    const clientPoint = pathElement.ownerSVGElement.createSVGPoint();
+    clientPoint.x = clientX;
+    clientPoint.y = clientY;
+    const localPoint = clientPoint.matrixTransform(inverseCtm);
+
+    const totalLength = pathElement.getTotalLength();
+    let best = null;
+
+    for (let i = 0; i <= CONTOUR_SAMPLE_COUNT; i += 1) {
+      const t = i / CONTOUR_SAMPLE_COUNT;
+      const point = pathElement.getPointAtLength(t * totalLength);
+      const distance = Math.hypot(point.x - localPoint.x, point.y - localPoint.y);
+
+      if (!best || distance < best.distance) {
+        best = { t, distance, x: point.x, y: point.y };
+      }
+    }
+
+    const client = pathPointToClient(pathElement, best.x, best.y);
+    return client ? { t: best.t, clientX: client.x, clientY: client.y } : null;
+  }
+
+  // Which way a cable should visually "exit" a contour point — the left
+  // half of the cloud behaves like a left-edge (input-ish) port, the right
+  // half like a right-edge (output-ish) one, purely for the existing bezier
+  // curvature heuristic in getCablePath.
+  function getContourSide(pathElement, t) {
+    const totalLength = pathElement.getTotalLength();
+    const point = pathElement.getPointAtLength(t * totalLength);
+    const bbox = pathElement.getBBox();
+    return point.x < bbox.x + bbox.width / 2 ? -1 : 1;
+  }
+
+  function getContourAnchor(pathElement, t, workspaceRect, zoom) {
+    const totalLength = pathElement.getTotalLength();
+    const point = pathElement.getPointAtLength(clamp01(t) * totalLength);
+    const client = pathPointToClient(pathElement, point.x, point.y);
+
+    if (!client) {
+      return null;
+    }
+
+    return {
+      x: (client.x - workspaceRect.left) / zoom,
+      y: (client.y - workspaceRect.top) / zoom,
+      side: getContourSide(pathElement, t)
+    };
+  }
+
+  function clamp01(value) {
+    return Math.min(Math.max(value, 0), 1);
+  }
+
+  // Only offered as a drag target for cables that are themselves a network
+  // signal — an HDMI/SDI/etc. cable should never be able to snap onto the
+  // cloud.
+  function findCloudContourSnap({ deviceLayer, event, fromSocket, snapDistance }) {
+    if (!CLOUD_COMPATIBLE_SIGNALS.has(fromSocket.signal)) {
+      return null;
+    }
+
+    const candidates = [...deviceLayer.querySelectorAll(".internet-cloud-contour")];
+    let nearest = null;
+
+    candidates.forEach((pathElement) => {
+      const nodeId = pathElement.closest("[data-node-id]")?.dataset.nodeId;
+
+      if (!nodeId || nodeId === fromSocket.nodeId) {
+        return;
+      }
+
+      const point = getNearestContourPoint(pathElement, event.clientX, event.clientY);
+
+      if (!point) {
+        return;
+      }
+
+      const distance = Math.hypot(event.clientX - point.clientX, event.clientY - point.clientY);
+
+      if (distance > snapDistance || (nearest && distance >= nearest.distance)) {
+        return;
+      }
+
+      nearest = { distance, nodeId, t: point.t, pathElement };
+    });
+
+    return nearest;
   }
 
   function getCablePath(start, end, clampValue) {
@@ -223,10 +375,33 @@ window.BroadcastConnections = (() => {
 
       nearest = {
         distance,
-        socket: socketElement,
-        anchor: getSocketAnchor(socketElement, workspaceRect, zoom)
+        anchor: getSocketAnchor(socketElement, workspaceRect, zoom),
+        socketData: socket
       };
     });
+
+    const cloudSnap = findCloudContourSnap({ deviceLayer, event, fromSocket, snapDistance });
+
+    if (cloudSnap && (!nearest || cloudSnap.distance < nearest.distance)) {
+      const anchor = getContourAnchor(cloudSnap.pathElement, cloudSnap.t, workspaceRect, zoom);
+
+      if (anchor) {
+        nearest = {
+          distance: cloudSnap.distance,
+          anchor,
+          socketData: {
+            nodeId: cloudSnap.nodeId,
+            portId: `${CONTOUR_PORT_PREFIX}${cloudSnap.t.toFixed(4)}`,
+            // Just needs to be the opposite of fromSocket's so createConnection's
+            // from/to split works — LAN/Breitband/Glasfaser ignore direction
+            // for validity, and the contour anchor's own "side" (computed from
+            // which half of the cloud it's on) drives the actual cable curvature.
+            direction: fromSocket.direction === "output" ? "input" : "output",
+            signal: fromSocket.signal
+          }
+        };
+      }
+    }
 
     return nearest;
   }
@@ -347,7 +522,7 @@ window.BroadcastConnections = (() => {
       zoom
     });
 
-    activeDrag.snapTarget = snapTarget?.socket ?? null;
+    activeDrag.snapTarget = snapTarget?.socketData ?? null;
     activeDrag.current = snapTarget?.anchor ?? getWorkspacePoint(event);
     renderLines();
   }
@@ -361,14 +536,22 @@ window.BroadcastConnections = (() => {
     setSuppressNextSocketClick
   }) {
     const cableDrag = activeDrag;
-    const dropTarget = cableDrag.snapTarget
-      ?? document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-action='socket']");
+    // cableDrag.snapTarget is already plain socketData (real socket or
+    // synthetic contour port, see updateCableDrag/getSnapTarget) — the
+    // element-under-pointer fallback below only ever finds a real socket
+    // button, never a contour point (dropping exactly on the snap radius is
+    // what getSnapTarget is for).
+    const dropSocketData = cableDrag.snapTarget
+      ?? (() => {
+        const element = document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-action='socket']");
+        return element?.dataset.direction ? getSocketData(element) : null;
+      })();
 
     setActiveDrag(null);
     setSuppressNextSocketClick(true);
 
-    if (dropTarget?.dataset.direction) {
-      connectSockets(cableDrag.from, getSocketData(dropTarget));
+    if (dropSocketData) {
+      connectSockets(cableDrag.from, dropSocketData);
     } else {
       render();
     }
