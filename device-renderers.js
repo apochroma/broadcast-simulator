@@ -156,6 +156,11 @@
         // "this camera is inverted" tell, the image itself doesn't.
         const compensateDeg = node.rotated180 ? 180 : 0;
 
+        // Network config stays tucked away behind a fold-out toggle rather
+        // than always-on fields, so the card is exactly as compact as before
+        // for anyone who doesn't need it.
+        const networkOpen = Boolean(node.networkPanelOpen);
+
         return `
           <div class="monitor-screen">
             <button class="camera-preview" type="button" data-action="cycle-source-view" data-node-id="${node.id}">
@@ -165,9 +170,16 @@
             </button>
           </div>
           <div class="monitor-footer">
-            <span class="record-dot"></span>
-            <span>${node.shortName} · ${this.getSourceViewLabel(node)}</span>
+            <span class="monitor-footer-info">
+              <span class="record-dot"></span>
+              <span>${node.shortName} · ${this.getSourceViewLabel(node)}</span>
+            </span>
+            <button class="camera-network-toggle" type="button" data-action="toggle-camera-network" data-node-id="${node.id}"
+              title="Netzwerk-Einstellungen" aria-label="Netzwerk-Einstellungen" aria-expanded="${networkOpen}">
+              ${networkOpen ? "&#9650;" : "&#9660;"}
+            </button>
           </div>
+          ${networkOpen ? this.renderCameraNetworkPanel(node) : ""}
         `;
       }
 
@@ -1004,13 +1016,17 @@
     // directly on the node face — purely informational bookkeeping (no
     // validation against the actual scene's cabling), stored per-field as a
     // 4-element octet array on the node, defaulting to blank until edited.
-    renderNetworkGatewayIpRow(node, field, label) {
-      const octets = node[field] ?? ["", "", "", ""];
+    // `overrideValues`/`readOnly` let a DHCP-mode camera show its live
+    // computed address without those octets being individually editable —
+    // everything else (router/gateway/manual-mode camera) just renders
+    // node[field] directly and stays editable, same as before.
+    renderNetworkGatewayIpRow(node, field, label, { overrideValues, readOnly = false } = {}) {
+      const octets = overrideValues ?? node[field] ?? ["", "", "", ""];
       const inputs = octets
         .map((value, index) => `
           <input type="text" class="network-gateway-octet" inputmode="numeric" maxlength="3"
             data-action="network-gateway-set-octet" data-node-id="${node.id}" data-field="${field}" data-index="${index}"
-            value="${escapeHtml(value ?? "")}" placeholder="0">
+            value="${escapeHtml(value ?? "")}" placeholder="0" ${readOnly ? "disabled" : ""}>
         `)
         .join('<span class="network-gateway-dot">.</span>');
 
@@ -1038,6 +1054,32 @@
         <div class="network-gateway-ip-row">
           <span class="network-gateway-ip-label">DHCP</span>
           <span class="network-gateway-octets">${inputs}</span>
+        </div>
+      `;
+    }
+
+    // Manual/DHCP toggle above the IP/Subnet/Gateway rows. In DHCP mode the
+    // three rows switch to the live-computed address (see
+    // computeCameraNetworkConfig: a free address out of the connected
+    // router's DHCP pool, or an APIPA address if no router is reachable)
+    // and their inputs go read-only — there's nothing to type when the
+    // camera is "getting an address automatically".
+    renderCameraNetworkPanel(node) {
+      const mode = node.ipMode === "dhcp" ? "dhcp" : "manual";
+      const config = this.callbacks.computeCameraNetworkConfig(node);
+      const isDhcp = mode === "dhcp";
+
+      return `
+        <div class="camera-network-panel">
+          <div class="camera-network-mode">
+            <button class="camera-network-mode-btn ${mode === "manual" ? "is-active" : ""}" type="button"
+              data-action="set-camera-ip-mode" data-node-id="${node.id}" data-mode="manual">Manual</button>
+            <button class="camera-network-mode-btn ${isDhcp ? "is-active" : ""}" type="button"
+              data-action="set-camera-ip-mode" data-node-id="${node.id}" data-mode="dhcp">DHCP</button>
+          </div>
+          ${this.renderNetworkGatewayIpRow(node, "ipAddress", "IP", { overrideValues: config.ip, readOnly: isDhcp })}
+          ${this.renderNetworkGatewayIpRow(node, "subnetMask", "Subnet", { overrideValues: config.subnet, readOnly: isDhcp })}
+          ${this.renderNetworkGatewayIpRow(node, "gatewayAddress", "Gateway", { overrideValues: config.gateway, readOnly: isDhcp })}
         </div>
       `;
     }

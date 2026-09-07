@@ -3118,6 +3118,7 @@ connectionController = new BroadcastConnections.ConnectionController({
     getAudioMarkers: getConnectionAudioMarkers,
     getClassName: getConnectionClass,
     getLabel: getConnectionLabel,
+    getNetworkHealthy: isConnectionNetworkHealthy,
     getWorkspacePoint,
     getZoom: () => state.zoom,
     isValidConnection,
@@ -3209,6 +3210,7 @@ atemMediaController = new BroadcastAtemMedia.AtemMediaPoolController({
 
 deviceRenderer = new BroadcastDeviceRenderers.DeviceRenderer({
   callbacks: {
+    computeCameraNetworkConfig,
     ensureMonitorLoopOutputs,
     ensureSourceIdentity,
     ensureSwitcherMediaPools,
@@ -4324,6 +4326,243 @@ function navigateStreamDeckPage(nodeId, direction) {
   render();
 }
 
+function toggleCameraNetworkPanel(nodeId) {
+  const node = getNode(nodeId);
+
+  if (!node || node.type !== "camera") {
+    return;
+  }
+
+  node.networkPanelOpen = !node.networkPanelOpen;
+  render();
+}
+
+function setCameraIpMode(nodeId, mode) {
+  const node = getNode(nodeId);
+
+  if (!node || node.type !== "camera" || !["manual", "dhcp"].includes(mode)) {
+    return;
+  }
+
+  recordUndoSnapshot();
+
+  if (mode === "manual" && node.ipMode === "dhcp" && !node.ipManuallyEdited) {
+    const resolved = computeCameraNetworkConfig(node);
+    node.ipAddress = [...resolved.ip];
+    node.subnetMask = [...resolved.subnet];
+    node.gatewayAddress = [...resolved.gateway];
+  }
+
+  node.ipMode = mode;
+  render();
+}
+
+// Every other node cabled to ANY port of this one — used for LAN graph
+// traversal, where (unlike a single named port lookup) a switch's or PoE
+// injector's ports are all equivalent: real hardware forwards between all of
+// them rather than treating any one as special.
+function getAllNeighborNodes(nodeId) {
+  const neighborIds = new Set();
+
+  state.connections.forEach((connection) => {
+    if (connection.from.nodeId === nodeId) {
+      neighborIds.add(connection.to.nodeId);
+    } else if (connection.to.nodeId === nodeId) {
+      neighborIds.add(connection.from.nodeId);
+    }
+  });
+
+  return [...neighborIds].map((id) => getNode(id)).filter(Boolean);
+}
+
+// Pure LAN pass-through devices — a DHCP request has to be able to cross any
+// number of these to reach a router/gateway, exactly like on a real network
+// (a switch or PoE injector doesn't terminate the LAN, it just relays it).
+const NETWORK_PASSTHROUGH_NODE_TYPES = new Set(["networkSwitch", "poeInjector"]);
+
+// Breadth-first search out from a camera across switches/injectors until a
+// router/gateway is found (or the reachable LAN segment is exhausted).
+function findReachableRouter(startNodeId) {
+  const visited = new Set([startNodeId]);
+  let frontier = getAllNeighborNodes(startNodeId);
+
+  while (frontier.length > 0) {
+    const nextFrontier = [];
+
+    for (const node of frontier) {
+      if (visited.has(node.id)) {
+        continue;
+      }
+
+      visited.add(node.id);
+
+      if (node.type === "router" || node.type === "networkGateway") {
+        return node;
+      }
+
+      if (NETWORK_PASSTHROUGH_NODE_TYPES.has(node.type)) {
+        nextFrontier.push(...getAllNeighborNodes(node.id));
+      }
+    }
+
+    frontier = nextFrontier;
+  }
+
+  return null;
+}
+
+const NETWORK_ROUTER_NODE_TYPES = new Set(["router", "networkGateway"]);
+
+function getSegmentRouter(node) {
+  if (!node) {
+    return null;
+  }
+
+  return NETWORK_ROUTER_NODE_TYPES.has(node.type) ? node : findReachableRouter(node.id);
+}
+
+function ipOctetsComplete(octets) {
+  return Array.isArray(octets) && octets.length === 4 && octets.every((value) => value !== "" && value !== undefined && value !== null);
+}
+
+function octetsEqual(a, b) {
+  return Array.isArray(a) && Array.isArray(b) && a.length === 4 && b.length === 4 && a.every((value, index) => String(value) === String(b[index]));
+}
+
+function networkAddress(ip, mask) {
+  return ip.reduce((acc, value, index) => acc + ((Number(value) & Number(mask[index])) << (8 * (3 - index))), 0);
+}
+
+// Whether a device's own IP configuration would actually let it talk to the
+// router that anchors its LAN segment — same logic a real device would need
+// (matching subnet + a gateway that points at that router), used to decide
+// whether the cable touching it should visually carry traffic.
+function isNetworkEndpointHealthy(node, router) {
+  if (!node || !router) {
+    return false;
+  }
+
+  if (node.id === router.id || NETWORK_PASSTHROUGH_NODE_TYPES.has(node.type)) {
+    return true;
+  }
+
+  if (node.type !== "camera") {
+    return true;
+  }
+
+  const config = computeCameraNetworkConfig(node);
+
+  if (!ipOctetsComplete(config.ip) || !ipOctetsComplete(config.subnet) || !ipOctetsComplete(config.gateway)) {
+    return false;
+  }
+
+  if (!ipOctetsComplete(router.ipAddress) || !ipOctetsComplete(router.subnetMask) || !ipOctetsComplete(router.gatewayAddress)) {
+    return false;
+  }
+
+  if (!octetsEqual(config.subnet, router.subnetMask)) {
+    return false;
+  }
+
+  if (networkAddress(config.ip, config.subnet) !== networkAddress(router.ipAddress, router.subnetMask)) {
+    return false;
+  }
+
+  return octetsEqual(config.gateway, router.gatewayAddress);
+}
+
+// Drives the animated packet dots on LAN/Breitband/Glasfaser cables: traffic
+// only "flows" visually once both ends of the cable resolve to the same
+// router and each end's own IP config is actually consistent with it.
+function isConnectionNetworkHealthy(connection) {
+  if (!NETWORK_SIGNALS.has(connection.signal)) {
+    return false;
+  }
+
+  const fromNode = getNode(connection.from.nodeId);
+  const toNode = getNode(connection.to.nodeId);
+
+  if (!fromNode || !toNode) {
+    return false;
+  }
+
+  if (fromNode.type === "internetCloud" || toNode.type === "internetCloud") {
+    return true;
+  }
+
+  const routerFrom = getSegmentRouter(fromNode);
+  const routerTo = getSegmentRouter(toNode);
+
+  if (!routerFrom || !routerTo || routerFrom.id !== routerTo.id) {
+    return false;
+  }
+
+  return isNetworkEndpointHealthy(fromNode, routerFrom) && isNetworkEndpointHealthy(toNode, routerTo);
+}
+
+// A stable (same node -> same result every time), APIPA-range pseudo-random
+// address for whenever DHCP mode can't find an upstream router — mirrors
+// what a real device falls back to when no DHCP server answers.
+function computeApipaAddress(node) {
+  let hash = 0;
+
+  for (const char of node.id) {
+    hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  }
+
+  const thirdOctet = 1 + (hash % 254);
+  const fourthOctet = 1 + (Math.floor(hash / 254) % 254);
+
+  return {
+    ip: ["169", "254", String(thirdOctet), String(fourthOctet)],
+    subnet: ["255", "255", "0", "0"],
+    gateway: ["", "", "", ""]
+  };
+}
+
+// Live-computed, not stored: switching back to Manual (or re-cabling to a
+// different router) should never leave a stale DHCP-assigned address behind.
+function computeCameraNetworkConfig(camera) {
+  if (camera.ipMode !== "dhcp") {
+    return {
+      ip: camera.ipAddress ?? ["", "", "", ""],
+      subnet: camera.subnetMask ?? ["", "", "", ""],
+      gateway: camera.gatewayAddress ?? ["", "", "", ""]
+    };
+  }
+
+  const router = findReachableRouter(camera.id);
+
+  if (!router) {
+    return computeApipaAddress(camera);
+  }
+
+  const [octet1, octet2, octet3] = router.ipAddress ?? ["10", "10", "10", "254"];
+  const [rangeStart, rangeEnd] = (router.dhcpRange ?? ["100", "199"]).map((value) => Number(value) || 0);
+
+  // Every other DHCP-mode camera reaching the same router — through any
+  // chain of switches/injectors, not just a direct cable — gets the next
+  // address in the pool instead of everyone colliding on the same one, a
+  // simple stand-in for a real DHCP server's lease table, ordered by node id
+  // for stability.
+  const siblingIds = state.nodes
+    .filter((candidate) => (
+      candidate.type === "camera"
+      && candidate.ipMode === "dhcp"
+      && findReachableRouter(candidate.id)?.id === router.id
+    ))
+    .map((candidate) => candidate.id)
+    .sort();
+  const position = Math.max(siblingIds.indexOf(camera.id), 0);
+  const lastOctet = clamp(rangeStart + position, rangeStart, rangeEnd);
+
+  return {
+    ip: [octet1, octet2, octet3, String(lastOctet)],
+    subnet: router.subnetMask ?? ["255", "255", "255", "0"],
+    gateway: router.gatewayAddress ?? [octet1, octet2, octet3, "1"]
+  };
+}
+
 function toggleStreamDeckMapping(nodeId, open) {
   const node = getNode(nodeId);
 
@@ -4361,13 +4600,17 @@ function setStreamDeckInstanceMapping(nodeId, instanceId, targetNodeId) {
   render();
 }
 
-// Purely informational bookkeeping on the gateway's own node — one octet at
-// a time, matching how the face renders four separate inputs per row rather
-// than a single free-text address field.
+// Node types whose face renders IP/Subnet/Gateway (and, for the first two,
+// a DHCP range) octet fields — see renderNetworkGatewayIpRow/DhcpRow.
+const NETWORK_CONFIGURABLE_NODE_TYPES = new Set(["networkGateway", "router", "camera"]);
+
+// Purely informational bookkeeping on the node itself — one octet at a time,
+// matching how the face renders four separate inputs per row rather than a
+// single free-text address field.
 function setNetworkGatewayOctet(nodeId, field, index, value) {
   const node = getNode(nodeId);
 
-  if (!node || (node.type !== "networkGateway" && node.type !== "router")) {
+  if (!node || !NETWORK_CONFIGURABLE_NODE_TYPES.has(node.type)) {
     return;
   }
 
@@ -4376,6 +4619,11 @@ function setNetworkGatewayOctet(nodeId, field, index, value) {
   const trimmed = value.trim();
   octets[Number(index)] = trimmed === "" ? "" : String(clamp(Math.round(Number(trimmed)) || 0, 0, 255));
   node[field] = octets;
+
+  if (node.type === "camera") {
+    node.ipManuallyEdited = true;
+  }
+
   render();
 }
 
@@ -6914,6 +7162,14 @@ deviceLayer.addEventListener("click", (event) => {
 
   if (action === "cycle-source-view") {
     cycleSourceView(actionTarget.dataset.nodeId);
+  }
+
+  if (action === "toggle-camera-network") {
+    toggleCameraNetworkPanel(actionTarget.dataset.nodeId);
+  }
+
+  if (action === "set-camera-ip-mode") {
+    setCameraIpMode(actionTarget.dataset.nodeId, actionTarget.dataset.mode);
   }
 
   if (action === "random-media") {

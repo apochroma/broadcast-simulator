@@ -313,13 +313,17 @@ window.BroadcastDeviceCatalog = (() => {
       model3d: "assets/CanonCRN300.glb",
       capabilities: ["video-source", "camera-source", "network-control"],
       width: 270,
+      // Fixed pixel offsets (not the usual top-%) so the connectors stay
+      // exactly where cables are plugged in regardless of the card's total
+      // height — the network panel toggle below the footer changes that
+      // height, and a percentage would otherwise drag every port along with it.
       inputs: [
-        { id: "mic-in", label: "Mic In", signal: "Mic 3.5mm", top: 58 }
+        { id: "mic-in", label: "Mic In", signal: "Mic 3.5mm", topPx: 165 }
       ],
       outputs: [
-        { id: "hdmi-out", label: "HDMI Out", signal: "HDMI", top: 42 },
-        { id: "sdi-out", label: "SDI Out", signal: "SDI", top: 58 },
-        { id: "rj45", label: "LAN", signal: "LAN", top: 74 }
+        { id: "hdmi-out", label: "HDMI Out", signal: "HDMI", topPx: 120 },
+        { id: "sdi-out", label: "SDI Out", signal: "SDI", topPx: 165 },
+        { id: "rj45", label: "LAN", signal: "LAN", topPx: 211 }
       ]
     };
   }

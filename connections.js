@@ -25,6 +25,7 @@ window.BroadcastConnections = (() => {
     getAudioMarkers,
     getClassName,
     getLabel,
+    getNetworkHealthy,
     signalColors,
     selectedConnectionIndex,
     workspace,
@@ -51,6 +52,7 @@ window.BroadcastConnections = (() => {
         connectionIndex: index,
         end,
         label: getLabel(connection),
+        networkHealthy: getNetworkHealthy ? getNetworkHealthy(connection) : false,
         pathId: `cable-path-${index}`,
         selected: selectedConnectionIndex === index,
         signal: connection.signal,
@@ -274,6 +276,7 @@ window.BroadcastConnections = (() => {
     connectionIndex = null,
     end,
     label,
+    networkHealthy = false,
     pathId = "cable-path",
     selected = false,
     signal,
@@ -320,6 +323,65 @@ window.BroadcastConnections = (() => {
     audioMarkers.forEach((marker, index) => {
       addAudioNote(cableLayer, pathId, marker, index, audioMarkers.length);
     });
+
+    if (networkHealthy && CLOUD_COMPATIBLE_SIGNALS.has(signal)) {
+      // Traverse time scales with the cable's own on-screen length so the
+      // I/O glyphs travel at one constant speed regardless of how long or
+      // short the drawn cable is — a fixed duration would make short cables
+      // look frantic and long ones look sluggish. Only floor is a guard
+      // against a near-zero-length path producing an invalid 0s duration.
+      const length = path.getTotalLength();
+      const duration = Math.max(0.2, length / NETWORK_PACKET_SPEED_PX_PER_SEC);
+
+      // One glyph roughly every NETWORK_PACKET_SPACING_PX of cable, per
+      // direction, so a long run visibly carries a whole stream of 1s/0s
+      // instead of just the single pair a short patch cable gets.
+      const packetsPerDirection = Math.max(1, Math.round(length / NETWORK_PACKET_SPACING_PX));
+
+      for (let i = 0; i < packetsPerDirection; i += 1) {
+        const begin = -((i / packetsPerDirection) * duration);
+        addNetworkPacket(cableLayer, pathId, begin, false, randomBitGlyph(), duration);
+        addNetworkPacket(cableLayer, pathId, begin, true, randomBitGlyph(), duration);
+      }
+    }
+  }
+
+  const NETWORK_PACKET_SPEED_PX_PER_SEC = 140;
+  const NETWORK_PACKET_SPACING_PX = 120;
+
+  // A real bitstream isn't a tidy 1-0-1-0 alternation, so pick each glyph
+  // independently rather than alternating by index.
+  function randomBitGlyph() {
+    return Math.random() < 0.5 ? "I" : "O";
+  }
+
+  // A single "I"/"O" riding the path, forward or backward, on a loop —
+  // stacked up along the cable (see packetsPerDirection above) to stand in
+  // for input/output (or 1/0) traffic actually flowing both ways, the
+  // network equivalent of the audio notes.
+  function addNetworkPacket(cableLayer, pathId, beginSeconds, reverse, glyph, duration) {
+    const packet = document.createElementNS(SVG_NS, "text");
+    const motion = document.createElementNS(SVG_NS, "animateMotion");
+    const mpath = document.createElementNS(SVG_NS, "mpath");
+
+    packet.classList.add("network-packet");
+    packet.textContent = glyph;
+
+    motion.setAttribute("dur", `${duration}s`);
+    motion.setAttribute("begin", `${beginSeconds}s`);
+    motion.setAttribute("repeatCount", "indefinite");
+
+    if (reverse) {
+      motion.setAttribute("keyPoints", "1;0");
+      motion.setAttribute("keyTimes", "0;1");
+      motion.setAttribute("calcMode", "linear");
+    }
+
+    mpath.setAttribute("href", `#${pathId}`);
+    mpath.setAttributeNS(XLINK_NS, "xlink:href", `#${pathId}`);
+    motion.append(mpath);
+    packet.append(motion);
+    cableLayer.append(packet);
   }
 
   function addAudioNote(cableLayer, pathId, marker, index, markerCount) {
@@ -586,6 +648,7 @@ window.BroadcastConnections = (() => {
         getAudioMarkers: this.callbacks.getAudioMarkers,
         getClassName: this.callbacks.getClassName,
         getLabel: this.callbacks.getLabel,
+        getNetworkHealthy: this.callbacks.getNetworkHealthy,
         signalColors: this.config.signalColors,
         selectedConnectionIndex: this.state.selectedConnectionIndex,
         workspace: this.elements.workspace,

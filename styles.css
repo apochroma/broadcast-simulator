@@ -1149,6 +1149,17 @@ body.is-read-only #openGearLibrary {
   }
 }
 
+.cable-layer .network-packet {
+  fill: #55e6a5;
+  font-size: 13px;
+  font-weight: 800;
+  paint-order: stroke;
+  pointer-events: none;
+  stroke: rgba(5, 6, 7, 0.82);
+  stroke-width: 3px;
+  text-shadow: 0 0 6px #55e6a5;
+}
+
 .node {
   position: absolute;
   width: 270px;
@@ -2636,6 +2647,78 @@ body.is-read-only #openGearLibrary {
   color: var(--muted);
   font-size: 0.84rem;
   font-weight: 800;
+}
+
+.monitor-footer-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.camera-network-toggle {
+  flex-shrink: 0;
+  min-width: 26px;
+  min-height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+.camera-network-toggle:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+
+.camera-network-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.camera-network-mode {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.camera-network-mode-btn {
+  flex: 1;
+  padding: 4px 0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+}
+
+.camera-network-mode-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.camera-network-mode-btn.is-active {
+  border-color: rgba(76, 201, 240, 0.7);
+  background: rgba(76, 201, 240, 0.18);
+  color: #fff;
+}
+
+.network-gateway-octet:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .small-button {
