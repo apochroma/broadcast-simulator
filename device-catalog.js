@@ -239,7 +239,8 @@ window.BroadcastDeviceCatalog = (() => {
       gridRows: 4,
       inputs: [],
       outputs: [
-        { id: "usb-c", label: "USB-C", signal: "USB-C", top: 50 }
+        { id: "usb-c", label: "USB-C", signal: "USB-C", top: 42 },
+        { id: "rj45", label: "LAN", signal: "LAN", top: 58 }
       ]
     }
   };
@@ -377,6 +378,9 @@ window.BroadcastDeviceCatalog = (() => {
       videoOutputs[1].label = `${videoLabel} MV`;
     }
 
+    const preLanOutputs = [...videoOutputs, ...usbPorts, ...headphone];
+    const lanTop = preLanOutputs.length ? Math.max(...preLanOutputs.map((port) => port.top)) + 8 : 50;
+
     return {
       type: "switcher",
       title,
@@ -397,7 +401,7 @@ window.BroadcastDeviceCatalog = (() => {
         ...makeNumberedPorts("input", inputCount, videoSignal, videoLabel, inputCount > 4 ? 20 : 28, inputCount > 4 ? 6 : 10),
         ...audioInputs
       ],
-      outputs: [...videoOutputs, ...usbPorts, ...headphone]
+      outputs: [...preLanOutputs, { id: "rj45", label: "LAN", signal: "LAN", top: lanTop }]
     };
   }
 

@@ -174,16 +174,15 @@
               <span class="record-dot"></span>
               <span>${node.shortName} · ${this.getSourceViewLabel(node)}</span>
             </span>
-            <button class="camera-network-toggle" type="button" data-action="toggle-camera-network" data-node-id="${node.id}"
-              title="Netzwerk-Einstellungen" aria-label="Netzwerk-Einstellungen" aria-expanded="${networkOpen}">
-              ${networkOpen ? "&#9650;" : "&#9660;"}
-            </button>
+            ${this.renderDeviceNetworkToggle(node)}
           </div>
-          ${networkOpen ? this.renderCameraNetworkPanel(node) : ""}
+          ${networkOpen ? this.renderDeviceNetworkPanel(node) : ""}
         `;
       }
 
       if (this.callbacks.isDisplaySourceNode(node)) {
+        const networkOpen = Boolean(node.networkPanelOpen);
+
         return `
           <button class="source-visual" type="button" data-action="cycle-source-view" data-node-id="${node.id}">
             ${this.renderSourcePreview(node)}
@@ -191,17 +190,25 @@
           <div class="node-meta">
             <span>${node.shortName}</span>
             <button class="small-button ${this.state.readOnly ? "is-hidden" : ""}" type="button" data-action="random-media" data-node-id="${node.id}">Random</button>
+            ${this.renderDeviceNetworkToggle(node)}
           </div>
+          ${networkOpen ? this.renderDeviceNetworkPanel(node) : ""}
         `;
       }
 
       if (node.type === "switcher") {
+        const networkOpen = Boolean(node.networkPanelOpen);
+
         return `
-          <div class="simple-device-face switcher-title-face">${node.title}</div>
+          <div class="simple-device-face switcher-title-face">
+            <span>${node.title}</span>
+            ${this.renderDeviceNetworkToggle(node)}
+          </div>
           <div class="switcher-display">
             <span>Program / Preview</span>
             <strong>${this.callbacks.getSwitcherReadout(node)}</strong>
           </div>
+          ${networkOpen ? this.renderDeviceNetworkPanel(node) : ""}
           ${this.callbacks.renderSwitcherPanel(node)}
         `;
       }
@@ -303,7 +310,15 @@
       }
 
       if (node.type === "streamDeckXL") {
-        return this.renderStreamDeckXLPanel(node);
+        const networkOpen = Boolean(node.networkPanelOpen);
+
+        return `
+          ${this.renderStreamDeckXLPanel(node)}
+          <div class="node-meta streamdeck-network-row">
+            ${this.renderDeviceNetworkToggle(node)}
+          </div>
+          ${networkOpen ? this.renderDeviceNetworkPanel(node) : ""}
+        `;
       }
 
       return `
@@ -326,6 +341,7 @@
         : Array.from({ length: 10 }, (_, index) => index + 1);
 
       const joystick = node.joystick ?? { x: 0, y: 0 };
+      const networkOpen = Boolean(node.networkPanelOpen);
 
       return `
         <div class="ptz-panel ${isFly ? "is-fly" : "is-pro"}" style="--ptz-joy-x: ${joystick.x ?? 0}; --ptz-joy-y: ${joystick.y ?? 0};">
@@ -389,7 +405,9 @@
         <div class="node-meta">
           <span>PoE Controller</span>
           <span>CAM ${node.selectedCamera ?? 1}</span>
+          ${this.renderDeviceNetworkToggle(node)}
         </div>
+        ${networkOpen ? this.renderDeviceNetworkPanel(node) : ""}
       `;
     }
 
@@ -1058,24 +1076,39 @@
       `;
     }
 
+    // The small chevron button that expands/collapses renderDeviceNetworkPanel
+    // below — shared across every leaf device type that carries its own IP
+    // identity (camera, computer, ATEM, PTZ controller, Stream Deck) so each
+    // face only has to drop it into whatever footer/meta row it already has.
+    renderDeviceNetworkToggle(node) {
+      const networkOpen = Boolean(node.networkPanelOpen);
+
+      return `
+        <button class="device-network-toggle" type="button" data-action="toggle-device-network" data-node-id="${node.id}"
+          title="Netzwerk-Einstellungen" aria-label="Netzwerk-Einstellungen" aria-expanded="${networkOpen}">
+          ${networkOpen ? "&#9650;" : "&#9660;"}
+        </button>
+      `;
+    }
+
     // Manual/DHCP toggle above the IP/Subnet/Gateway rows. In DHCP mode the
     // three rows switch to the live-computed address (see
-    // computeCameraNetworkConfig: a free address out of the connected
+    // computeDeviceNetworkConfig: a free address out of the connected
     // router's DHCP pool, or an APIPA address if no router is reachable)
     // and their inputs go read-only — there's nothing to type when the
-    // camera is "getting an address automatically".
-    renderCameraNetworkPanel(node) {
+    // device is "getting an address automatically".
+    renderDeviceNetworkPanel(node) {
       const mode = node.ipMode === "dhcp" ? "dhcp" : "manual";
-      const config = this.callbacks.computeCameraNetworkConfig(node);
+      const config = this.callbacks.computeDeviceNetworkConfig(node);
       const isDhcp = mode === "dhcp";
 
       return `
-        <div class="camera-network-panel">
-          <div class="camera-network-mode">
-            <button class="camera-network-mode-btn ${mode === "manual" ? "is-active" : ""}" type="button"
-              data-action="set-camera-ip-mode" data-node-id="${node.id}" data-mode="manual">Manual</button>
-            <button class="camera-network-mode-btn ${isDhcp ? "is-active" : ""}" type="button"
-              data-action="set-camera-ip-mode" data-node-id="${node.id}" data-mode="dhcp">DHCP</button>
+        <div class="device-network-panel">
+          <div class="device-network-mode">
+            <button class="device-network-mode-btn ${mode === "manual" ? "is-active" : ""}" type="button"
+              data-action="set-device-ip-mode" data-node-id="${node.id}" data-mode="manual">Manual</button>
+            <button class="device-network-mode-btn ${isDhcp ? "is-active" : ""}" type="button"
+              data-action="set-device-ip-mode" data-node-id="${node.id}" data-mode="dhcp">DHCP</button>
           </div>
           ${this.renderNetworkGatewayIpRow(node, "ipAddress", "IP", { overrideValues: config.ip, readOnly: isDhcp })}
           ${this.renderNetworkGatewayIpRow(node, "subnetMask", "Subnet", { overrideValues: config.subnet, readOnly: isDhcp })}

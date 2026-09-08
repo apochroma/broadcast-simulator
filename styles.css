@@ -1353,8 +1353,15 @@ body.is-read-only #openGearLibrary {
 }
 
 .switcher-title-face {
+  position: relative;
   min-height: 74px;
   font-size: 1.25rem;
+}
+
+.switcher-title-face .device-network-toggle {
+  position: absolute;
+  top: 8px;
+  right: 8px;
 }
 
 .media-drop-zone,
@@ -2656,7 +2663,11 @@ body.is-read-only #openGearLibrary {
   min-width: 0;
 }
 
-.camera-network-toggle {
+.streamdeck-network-row {
+  justify-content: flex-end;
+}
+
+.device-network-toggle {
   flex-shrink: 0;
   min-width: 26px;
   min-height: 26px;
@@ -2669,12 +2680,12 @@ body.is-read-only #openGearLibrary {
   cursor: pointer;
 }
 
-.camera-network-toggle:hover {
+.device-network-toggle:hover {
   background: rgba(255, 255, 255, 0.16);
   color: #fff;
 }
 
-.camera-network-panel {
+.device-network-panel {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -2685,13 +2696,13 @@ body.is-read-only #openGearLibrary {
   background: rgba(0, 0, 0, 0.25);
 }
 
-.camera-network-mode {
+.device-network-mode {
   display: flex;
   gap: 6px;
   margin-bottom: 2px;
 }
 
-.camera-network-mode-btn {
+.device-network-mode-btn {
   flex: 1;
   padding: 4px 0;
   border: 1px solid rgba(255, 255, 255, 0.14);
@@ -2705,12 +2716,12 @@ body.is-read-only #openGearLibrary {
   cursor: pointer;
 }
 
-.camera-network-mode-btn:hover {
+.device-network-mode-btn:hover {
   background: rgba(255, 255, 255, 0.1);
   color: #fff;
 }
 
-.camera-network-mode-btn.is-active {
+.device-network-mode-btn.is-active {
   border-color: rgba(76, 201, 240, 0.7);
   background: rgba(76, 201, 240, 0.18);
   color: #fff;

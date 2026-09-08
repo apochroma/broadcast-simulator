@@ -3210,7 +3210,7 @@ atemMediaController = new BroadcastAtemMedia.AtemMediaPoolController({
 
 deviceRenderer = new BroadcastDeviceRenderers.DeviceRenderer({
   callbacks: {
-    computeCameraNetworkConfig,
+    computeDeviceNetworkConfig,
     ensureMonitorLoopOutputs,
     ensureSourceIdentity,
     ensureSwitcherMediaPools,
@@ -4326,10 +4326,15 @@ function navigateStreamDeckPage(nodeId, direction) {
   render();
 }
 
-function toggleCameraNetworkPanel(nodeId) {
+// Leaf devices that carry their own IP/Subnet/Gateway identity behind the
+// fold-out network panel (as opposed to switches/injectors, which just relay,
+// or the router/gateway, which has its own always-visible IP UI instead).
+const NETWORK_CLIENT_NODE_TYPES = new Set(["camera", "computer", "switcher", "ptzController", "streamDeckXL"]);
+
+function toggleDeviceNetworkPanel(nodeId) {
   const node = getNode(nodeId);
 
-  if (!node || node.type !== "camera") {
+  if (!node || !NETWORK_CLIENT_NODE_TYPES.has(node.type)) {
     return;
   }
 
@@ -4337,17 +4342,17 @@ function toggleCameraNetworkPanel(nodeId) {
   render();
 }
 
-function setCameraIpMode(nodeId, mode) {
+function setDeviceIpMode(nodeId, mode) {
   const node = getNode(nodeId);
 
-  if (!node || node.type !== "camera" || !["manual", "dhcp"].includes(mode)) {
+  if (!node || !NETWORK_CLIENT_NODE_TYPES.has(node.type) || !["manual", "dhcp"].includes(mode)) {
     return;
   }
 
   recordUndoSnapshot();
 
   if (mode === "manual" && node.ipMode === "dhcp" && !node.ipManuallyEdited) {
-    const resolved = computeCameraNetworkConfig(node);
+    const resolved = computeDeviceNetworkConfig(node);
     node.ipAddress = [...resolved.ip];
     node.subnetMask = [...resolved.subnet];
     node.gatewayAddress = [...resolved.gateway];
@@ -4446,11 +4451,11 @@ function isNetworkEndpointHealthy(node, router) {
     return true;
   }
 
-  if (node.type !== "camera") {
+  if (!NETWORK_CLIENT_NODE_TYPES.has(node.type)) {
     return true;
   }
 
-  const config = computeCameraNetworkConfig(node);
+  const config = computeDeviceNetworkConfig(node);
 
   if (!ipOctetsComplete(config.ip) || !ipOctetsComplete(config.subnet) || !ipOctetsComplete(config.gateway)) {
     return false;
@@ -4522,38 +4527,38 @@ function computeApipaAddress(node) {
 
 // Live-computed, not stored: switching back to Manual (or re-cabling to a
 // different router) should never leave a stale DHCP-assigned address behind.
-function computeCameraNetworkConfig(camera) {
-  if (camera.ipMode !== "dhcp") {
+function computeDeviceNetworkConfig(device) {
+  if (device.ipMode !== "dhcp") {
     return {
-      ip: camera.ipAddress ?? ["", "", "", ""],
-      subnet: camera.subnetMask ?? ["", "", "", ""],
-      gateway: camera.gatewayAddress ?? ["", "", "", ""]
+      ip: device.ipAddress ?? ["", "", "", ""],
+      subnet: device.subnetMask ?? ["", "", "", ""],
+      gateway: device.gatewayAddress ?? ["", "", "", ""]
     };
   }
 
-  const router = findReachableRouter(camera.id);
+  const router = findReachableRouter(device.id);
 
   if (!router) {
-    return computeApipaAddress(camera);
+    return computeApipaAddress(device);
   }
 
   const [octet1, octet2, octet3] = router.ipAddress ?? ["10", "10", "10", "254"];
   const [rangeStart, rangeEnd] = (router.dhcpRange ?? ["100", "199"]).map((value) => Number(value) || 0);
 
-  // Every other DHCP-mode camera reaching the same router — through any
+  // Every other DHCP-mode client reaching the same router — through any
   // chain of switches/injectors, not just a direct cable — gets the next
   // address in the pool instead of everyone colliding on the same one, a
   // simple stand-in for a real DHCP server's lease table, ordered by node id
   // for stability.
   const siblingIds = state.nodes
     .filter((candidate) => (
-      candidate.type === "camera"
+      NETWORK_CLIENT_NODE_TYPES.has(candidate.type)
       && candidate.ipMode === "dhcp"
       && findReachableRouter(candidate.id)?.id === router.id
     ))
     .map((candidate) => candidate.id)
     .sort();
-  const position = Math.max(siblingIds.indexOf(camera.id), 0);
+  const position = Math.max(siblingIds.indexOf(device.id), 0);
   const lastOctet = clamp(rangeStart + position, rangeStart, rangeEnd);
 
   return {
@@ -4600,9 +4605,10 @@ function setStreamDeckInstanceMapping(nodeId, instanceId, targetNodeId) {
   render();
 }
 
-// Node types whose face renders IP/Subnet/Gateway (and, for the first two,
-// a DHCP range) octet fields — see renderNetworkGatewayIpRow/DhcpRow.
-const NETWORK_CONFIGURABLE_NODE_TYPES = new Set(["networkGateway", "router", "camera"]);
+// Node types whose face renders IP/Subnet/Gateway octet fields — the
+// router/gateway's own always-visible row plus every leaf client's fold-out
+// panel (see renderNetworkGatewayIpRow/DhcpRow and NETWORK_CLIENT_NODE_TYPES).
+const NETWORK_CONFIGURABLE_NODE_TYPES = new Set(["networkGateway", "router", ...NETWORK_CLIENT_NODE_TYPES]);
 
 // Purely informational bookkeeping on the node itself — one octet at a time,
 // matching how the face renders four separate inputs per row rather than a
@@ -4620,7 +4626,7 @@ function setNetworkGatewayOctet(nodeId, field, index, value) {
   octets[Number(index)] = trimmed === "" ? "" : String(clamp(Math.round(Number(trimmed)) || 0, 0, 255));
   node[field] = octets;
 
-  if (node.type === "camera") {
+  if (NETWORK_CLIENT_NODE_TYPES.has(node.type)) {
     node.ipManuallyEdited = true;
   }
 
@@ -7164,12 +7170,12 @@ deviceLayer.addEventListener("click", (event) => {
     cycleSourceView(actionTarget.dataset.nodeId);
   }
 
-  if (action === "toggle-camera-network") {
-    toggleCameraNetworkPanel(actionTarget.dataset.nodeId);
+  if (action === "toggle-device-network") {
+    toggleDeviceNetworkPanel(actionTarget.dataset.nodeId);
   }
 
-  if (action === "set-camera-ip-mode") {
-    setCameraIpMode(actionTarget.dataset.nodeId, actionTarget.dataset.mode);
+  if (action === "set-device-ip-mode") {
+    setDeviceIpMode(actionTarget.dataset.nodeId, actionTarget.dataset.mode);
   }
 
   if (action === "random-media") {
