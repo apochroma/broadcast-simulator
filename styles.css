@@ -1174,9 +1174,14 @@ body.is-read-only #openGearLibrary {
   border-color: rgba(53, 208, 127, 0.7);
 }
 
+/* Any click on a card (including its network-panel toggle) also selects it,
+   so tying the raised stacking to selection keeps whichever card the user
+   is actively working with above others it overlaps — e.g. an expanded
+   network panel spilling onto a neighboring card. */
 .node.is-selected {
   outline: 2px solid rgba(76, 201, 240, 0.9);
   outline-offset: 4px;
+  z-index: 15;
 }
 
 .node.is-program {
