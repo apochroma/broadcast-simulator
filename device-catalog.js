@@ -242,6 +242,53 @@ window.BroadcastDeviceCatalog = (() => {
         { id: "usb-c", label: "USB-C", signal: "USB-C", top: 42 },
         { id: "rj45", label: "LAN", signal: "LAN", top: 58 }
       ]
+    },
+    shapeRectangle: {
+      type: "shapeAnnotation",
+      shapeKind: "rect",
+      title: "Rechteck",
+      kicker: "Werkzeug",
+      capabilities: ["annotation-shape"],
+      width: 340,
+      height: 220,
+      color: "#4cc9f0",
+      inputs: [],
+      outputs: []
+    },
+    shapeCircle: {
+      type: "shapeAnnotation",
+      shapeKind: "circle",
+      title: "Kreis",
+      kicker: "Werkzeug",
+      capabilities: ["annotation-shape"],
+      width: 260,
+      height: 260,
+      color: "#f72585",
+      inputs: [],
+      outputs: []
+    },
+    shapeTriangle: {
+      type: "shapeAnnotation",
+      shapeKind: "triangle",
+      title: "Dreieck",
+      kicker: "Werkzeug",
+      capabilities: ["annotation-shape"],
+      width: 300,
+      height: 240,
+      color: "#ffd60a",
+      inputs: [],
+      outputs: []
+    },
+    textAnnotation: {
+      type: "textAnnotation",
+      title: "Text-Notiz",
+      kicker: "Werkzeug",
+      capabilities: ["annotation-text"],
+      width: 220,
+      text: "Text hier eingeben",
+      color: "#f4f6f8",
+      inputs: [],
+      outputs: []
     }
   };
 
@@ -273,7 +320,11 @@ window.BroadcastDeviceCatalog = (() => {
     ["teradekAce500Set", "Teradek", "ACE 500 TX/RX Set", "1x Sender (HDMI In) + 1x Empfänger (HDMI Out), koppelt drahtlos"],
     ["soundDevicesMixPre3", "Sound Devices", "MixPre-3 II", "3x XLR Mic/Line, Aux In, TC In, Line-/Kopfhörer-Out, USB-C"],
     ["behringerC2Set", "Behringer", "C-2 Stereoset", "2x Kondensatormikrofon, XLR Out, Niere, paarweise abgeglichen"],
-    ["streamDeckXL", "Elgato", "Stream Deck XL", "8x4 Tasten, USB-C, Companion-Konfiguration importierbar"]
+    ["streamDeckXL", "Elgato", "Stream Deck XL", "8x4 Tasten, USB-C, Companion-Konfiguration importierbar"],
+    ["shapeRectangle", "Werkzeuge", "Rechteck", "Farbige Fläche zum Gruppieren von Geräten"],
+    ["shapeCircle", "Werkzeuge", "Kreis", "Farbige Fläche zum Gruppieren von Geräten"],
+    ["shapeTriangle", "Werkzeuge", "Dreieck", "Farbige Fläche zum Gruppieren von Geräten"],
+    ["textAnnotation", "Werkzeuge", "Text-Notiz", "Freier Text zur Beschriftung des Diagramms"]
   ];
 
   const legacyGearAliases = {

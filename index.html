@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Broadcast Signalfluss Simulation</title>
-    <link rel="stylesheet" href="styles.css?v=streamdeck-58">
+    <link rel="stylesheet" href="styles.css?v=streamdeck-67">
     <script type="importmap">
       {
         "imports": {
@@ -144,6 +144,49 @@
           </div>
         </section>
 
+        <section class="draw-controls" aria-label="Zeichnen">
+          <details class="shape-menu">
+            <summary class="toolbar-icon-button" title="Form oder Text hinzufügen" aria-label="Form oder Text hinzufügen">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="3" width="10" height="10" rx="1.5"/>
+                <circle cx="16.5" cy="16.5" r="5"/>
+              </svg>
+            </summary>
+            <div class="action-menu-panel">
+              <button class="action-menu-item" type="button" id="addShapeRectangle" data-add-shape="shapeRectangle">
+                <span>Rechteck</span>
+              </button>
+              <button class="action-menu-item" type="button" id="addShapeCircle" data-add-shape="shapeCircle">
+                <span>Kreis</span>
+              </button>
+              <button class="action-menu-item" type="button" id="addShapeTriangle" data-add-shape="shapeTriangle">
+                <span>Dreieck</span>
+              </button>
+              <button class="action-menu-item" type="button" id="addShapeText" data-add-shape="textAnnotation">
+                <span>Text-Notiz</span>
+              </button>
+            </div>
+          </details>
+          <button class="toolbar-icon-button" type="button" id="toggleDrawMode" title="Freihand zeichnen" aria-label="Freihand zeichnen" aria-pressed="false">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M17 3a2.83 2.83 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>
+            </svg>
+          </button>
+          <div class="draw-color-swatches" id="drawColorSwatches">
+            <button class="draw-color-swatch is-active" type="button" data-color="#ff3454" style="background:#ff3454" title="#ff3454" aria-label="Farbe #ff3454"></button>
+            <button class="draw-color-swatch" type="button" data-color="#4cc9f0" style="background:#4cc9f0" title="#4cc9f0" aria-label="Farbe #4cc9f0"></button>
+            <button class="draw-color-swatch" type="button" data-color="#ffd60a" style="background:#ffd60a" title="#ffd60a" aria-label="Farbe #ffd60a"></button>
+            <button class="draw-color-swatch" type="button" data-color="#35d07f" style="background:#35d07f" title="#35d07f" aria-label="Farbe #35d07f"></button>
+            <button class="draw-color-swatch" type="button" data-color="#f4f6f8" style="background:#f4f6f8" title="#f4f6f8" aria-label="Farbe #f4f6f8"></button>
+          </div>
+          <button class="toolbar-icon-button" type="button" id="clearAnnotationStrokes" title="Alle Zeichnungen löschen" aria-label="Alle Zeichnungen löschen">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            </svg>
+          </button>
+        </section>
+
         <section class="zoom-controls" aria-label="Zoom">
           <button class="zoom-button" type="button" data-zoom="out">-</button>
           <output class="zoom-readout" id="zoomReadout">100%</output>
@@ -162,6 +205,7 @@
             </div>
             <div class="selection-marquee is-hidden" id="selectionMarquee"></div>
             <div class="device-layer" id="deviceLayer"></div>
+            <svg class="annotation-layer" id="annotationLayer" aria-hidden="true"></svg>
           </div>
         </div>
       </section>
@@ -341,14 +385,14 @@
       </form>
     </dialog>
 
-    <script src="device-catalog.js?v=streamdeck-58"></script>
+    <script src="device-catalog.js?v=streamdeck-67"></script>
     <script src="connections.js?v=lan-rename-8"></script>
-    <script src="atem.js?v=streamdeck-58"></script>
+    <script src="atem.js?v=streamdeck-67"></script>
     <script src="atem-audio.js?v=atem-audio-1"></script>
     <script src="atem-media.js?v=atem-media-1"></script>
-    <script src="companion-import.js?v=streamdeck-58"></script>
-    <script src="device-renderers.js?v=streamdeck-58"></script>
-    <script src="app.js?v=streamdeck-58"></script>
+    <script src="companion-import.js?v=streamdeck-67"></script>
+    <script src="device-renderers.js?v=streamdeck-67"></script>
+    <script src="app.js?v=streamdeck-67"></script>
     <script type="module" src="ptz-camera-3d.js?v=camera-3d-model-6"></script>
   </body>
 </html>

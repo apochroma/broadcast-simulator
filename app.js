@@ -121,7 +121,9 @@ const state = {
   selectedConnectionIndex: null,
   selectedSocket: null,
   nodes: [],
-  connections: []
+  connections: [],
+  drawMode: false,
+  drawColor: "#ff3454"
 };
 
 const workspaceViewport = document.querySelector("#workspaceViewport");
@@ -129,6 +131,7 @@ const workspaceScaleShell = document.querySelector("#workspaceScaleShell");
 const workspace = document.querySelector("#workspace");
 const cableLayer = document.querySelector("#cableLayer");
 const deviceLayer = document.querySelector("#deviceLayer");
+const annotationLayer = document.querySelector("#annotationLayer");
 const selectionMarquee = document.querySelector("#selectionMarquee");
 const alignControls = document.querySelector(".align-controls");
 const audioMeterPopover = document.querySelector("#audioMeterPopover");
@@ -178,6 +181,9 @@ let suppressNextGainClick = false;
 let activeGainDrag = null;
 let activeChannelFaderDrag = null;
 let activePtzJoystickDrag = null;
+let activeAnnotationResize = null;
+let activeAnnotationRotate = null;
+let activeAnnotationStroke = null;
 let ptzAnimationFrame = null;
 let ptzPresetPressTimer = null;
 let ptzPresetPressContext = null;
@@ -444,6 +450,23 @@ function getSpawnPosition(type, countOfType, width = 280) {
 
   if (type === "splitter") {
     return { x: viewportOrigin.x + 470, y: viewportOrigin.y + 360 + (countOfType - 1) * 240 };
+  }
+
+  // Annotation tools (shapes, text, hand-drawn strokes) are meant to land
+  // wherever the operator is currently looking, not out at the same fixed
+  // off-canvas offset every other device gets — that offset can sit past
+  // the edge of a normal-width window, making a newly added shape look
+  // like it silently failed. Center it in the visible viewport instead,
+  // staggering repeats slightly so they don't stack exactly on top of
+  // each other.
+  if (ANNOTATION_NODE_TYPES.has(type)) {
+    const visibleHeight = workspaceViewport.clientHeight / state.zoom;
+    const stagger = (countOfType - 1) * 28;
+
+    return {
+      x: centeredX + stagger,
+      y: viewportOrigin.y + Math.max(0, (visibleHeight - 200) / 2) + stagger
+    };
   }
 
   return { x: viewportOrigin.x + 980, y: viewportOrigin.y + 180 + (countOfType - 1) * 300 };
@@ -4568,6 +4591,63 @@ function computeDeviceNetworkConfig(device) {
   };
 }
 
+const ANNOTATION_NODE_TYPES = new Set(["shapeAnnotation", "textAnnotation", "strokeAnnotation"]);
+
+// Text notes only resize their width (height follows the text); shapes and
+// hand-drawn strokes resize in both dimensions.
+const ANNOTATION_2D_RESIZE_TYPES = new Set(["shapeAnnotation", "strokeAnnotation"]);
+
+function setAnnotationColor(nodeId, color) {
+  const node = getNode(nodeId);
+
+  if (!node || !ANNOTATION_NODE_TYPES.has(node.type)) {
+    return;
+  }
+
+  recordUndoSnapshot();
+  node.color = color;
+  render();
+}
+
+function setAnnotationText(nodeId, text) {
+  const node = getNode(nodeId);
+
+  if (!node || node.type !== "textAnnotation") {
+    return;
+  }
+
+  recordUndoSnapshot();
+  node.text = text;
+  render();
+}
+
+// Every non-annotation node whose center point currently falls inside the
+// shape's own bounds — dragging the shape carries these along, a simple
+// stand-in for a real parent/child group that needs no persistent model.
+// Measures actual rendered card heights (via the DOM) rather than guessing,
+// since only shapes/text carry an explicit height field.
+function getNodesInsideShape(shapeNode) {
+  const left = shapeNode.position.x;
+  const top = shapeNode.position.y;
+  const right = left + shapeNode.width;
+  const bottom = top + shapeNode.height;
+
+  return state.nodes.filter((candidate) => {
+    if (candidate.id === shapeNode.id || ANNOTATION_NODE_TYPES.has(candidate.type)) {
+      return false;
+    }
+
+    const element = deviceLayer.querySelector(`article.node[data-node-id="${candidate.id}"]`);
+    const rect = element?.getBoundingClientRect();
+    const candidateWidth = rect ? rect.width / state.zoom : (candidate.width ?? 0);
+    const candidateHeight = rect ? rect.height / state.zoom : 120;
+    const centerX = candidate.position.x + candidateWidth / 2;
+    const centerY = candidate.position.y + candidateHeight / 2;
+
+    return centerX >= left && centerX <= right && centerY >= top && centerY <= bottom;
+  });
+}
+
 function toggleStreamDeckMapping(nodeId, open) {
   const node = getNode(nodeId);
 
@@ -6986,6 +7066,36 @@ document.querySelector(".zoom-controls").addEventListener("click", (event) => {
   }
 });
 
+document.querySelector(".draw-controls").addEventListener("click", (event) => {
+  const toggleButton = event.target.closest("#toggleDrawMode");
+
+  if (toggleButton) {
+    setDrawMode(!state.drawMode);
+    return;
+  }
+
+  const colorSwatch = event.target.closest(".draw-color-swatch");
+
+  if (colorSwatch) {
+    setDrawColor(colorSwatch.dataset.color);
+    return;
+  }
+
+  const clearButton = event.target.closest("#clearAnnotationStrokes");
+
+  if (clearButton) {
+    clearAnnotationStrokes();
+    return;
+  }
+
+  const addShapeButton = event.target.closest("[data-add-shape]");
+
+  if (addShapeButton) {
+    addGear(addShapeButton.dataset.addShape);
+    addShapeButton.closest("details.shape-menu")?.removeAttribute("open");
+  }
+});
+
 alignControls.addEventListener("click", (event) => {
   const alignButton = event.target.closest("[data-align]");
 
@@ -7178,6 +7288,10 @@ deviceLayer.addEventListener("click", (event) => {
     setDeviceIpMode(actionTarget.dataset.nodeId, actionTarget.dataset.mode);
   }
 
+  if (action === "set-annotation-color") {
+    setAnnotationColor(actionTarget.dataset.nodeId, actionTarget.dataset.color);
+  }
+
   if (action === "random-media") {
     setRandomMedia(actionTarget.dataset.nodeId);
   }
@@ -7257,6 +7371,13 @@ deviceLayer.addEventListener("change", (event) => {
 
   if (dhcpInput) {
     setNetworkGatewayDhcpField(dhcpInput.dataset.nodeId, dhcpInput.dataset.index, dhcpInput.value);
+    return;
+  }
+
+  const annotationTextInput = event.target.closest('[data-action="set-annotation-text"]');
+
+  if (annotationTextInput) {
+    setAnnotationText(annotationTextInput.dataset.nodeId, annotationTextInput.value);
   }
 });
 
@@ -7474,7 +7595,12 @@ deviceLayer.addEventListener("drop", (event) => {
 });
 
 workspace.addEventListener("pointerdown", (event) => {
-  if (state.readOnly || event.target.closest("article.node")) {
+  // A press on the (bubbling) annotation layer while the pencil is active
+  // must only start a freehand stroke — without this guard, the same
+  // pointerdown also reaches this workspace-level listener and kicks off a
+  // marquee selection in parallel, which then wins the drag since the
+  // shared pointermove/pointerup dispatch checks activeDrag.type first.
+  if (state.readOnly || state.drawMode || event.target.closest("article.node")) {
     return;
   }
 
@@ -7542,6 +7668,20 @@ deviceLayer.addEventListener("pointerdown", (event) => {
     return;
   }
 
+  const resizeHandle = event.target.closest("[data-action='resize-annotation']");
+
+  if (resizeHandle) {
+    startAnnotationResize(event, resizeHandle);
+    return;
+  }
+
+  const rotateHandle = event.target.closest("[data-action='rotate-annotation']");
+
+  if (rotateHandle) {
+    startAnnotationRotate(event, rotateHandle);
+    return;
+  }
+
   if (event.target.closest("button")) {
     return;
   }
@@ -7570,7 +7710,11 @@ deviceLayer.addEventListener("pointerdown", (event) => {
     state.selectedSocket = null;
   }
 
-  const draggedNodeIds = getSelectedNodeIds();
+  const primaryDraggedNode = getNode(nodeId);
+  const groupedNodeIds = primaryDraggedNode?.type === "shapeAnnotation"
+    ? getNodesInsideShape(primaryDraggedNode).map((groupedNode) => groupedNode.id)
+    : [];
+  const draggedNodeIds = [...new Set([...getSelectedNodeIds(), ...groupedNodeIds])];
   const draggedNodes = draggedNodeIds.map((selectedNodeId) => {
     const selectedNode = getNode(selectedNodeId);
     const selectedElement = deviceLayer.querySelector(`article.node[data-node-id="${selectedNodeId}"]`);
@@ -7648,6 +7792,14 @@ deviceLayer.addEventListener("pointercancel", endDrag);
 deviceLayer.addEventListener("pointerleave", stopFaderHold);
 deviceLayer.addEventListener("pointerleave", () => stopPtzPresetPress(false));
 deviceLayer.addEventListener("pointerleave", () => stopStreamDeckPress(false));
+
+// move/up are handled from the shared document-level listeners below (next
+// to activeGainDrag/activePtzJoystickDrag/activeAnnotationResize) rather
+// than directly on annotationLayer: pointer capture on an SVG root doesn't
+// reliably keep delivering pointerup here once the cursor leaves it during
+// a fast stroke, so following the same document-wide pattern the other
+// drag types already use is what actually finishes the stroke.
+annotationLayer.addEventListener("pointerdown", startAnnotationStroke);
 document.addEventListener("pointermove", (event) => {
   if (activeDrag?.type === "marquee" && activeDrag.pointerId === event.pointerId) {
     updateMarqueeDrag(event);
@@ -7666,6 +7818,18 @@ document.addEventListener("pointermove", (event) => {
   if (activePtzJoystickDrag && activePtzJoystickDrag.pointerId === event.pointerId) {
     updatePtzJoystickDrag(event);
   }
+
+  if (activeAnnotationResize && activeAnnotationResize.pointerId === event.pointerId) {
+    updateAnnotationResize(event);
+  }
+
+  if (activeAnnotationRotate && activeAnnotationRotate.pointerId === event.pointerId) {
+    updateAnnotationRotate(event);
+  }
+
+  if (activeAnnotationStroke && activeAnnotationStroke.pointerId === event.pointerId) {
+    updateAnnotationStroke(event);
+  }
 });
 document.addEventListener("pointerup", (event) => {
   stopFaderHold();
@@ -7674,6 +7838,9 @@ document.addEventListener("pointerup", (event) => {
   endInputGainDrag(event);
   endChannelFaderDrag(event);
   endPtzJoystickDrag(event);
+  endAnnotationResize(event);
+  endAnnotationRotate(event);
+  endAnnotationStroke(event);
   endDrag(event);
 });
 document.addEventListener("pointercancel", (event) => {
@@ -7683,6 +7850,9 @@ document.addEventListener("pointercancel", (event) => {
   endInputGainDrag(event);
   endChannelFaderDrag(event);
   endPtzJoystickDrag(event);
+  endAnnotationResize(event);
+  endAnnotationRotate(event);
+  endAnnotationStroke(event);
   endDrag(event);
 });
 
@@ -7787,6 +7957,264 @@ function endInputGainDrag(event) {
   activeGainDrag.control.releasePointerCapture?.(event.pointerId);
   activeGainDrag = null;
   hideAudioMeter(600);
+}
+
+// Bottom-right corner handle on shape/text annotation cards. Mutates
+// node.width/height live (and pushes the same value straight onto the DOM
+// element) rather than going through a full render() per pointermove, since
+// nothing else about the card's markup depends on its size mid-drag.
+function startAnnotationResize(event, handle) {
+  const node = getNode(handle.dataset.nodeId);
+
+  if (!node || !ANNOTATION_NODE_TYPES.has(node.type)) {
+    return;
+  }
+
+  recordUndoSnapshot();
+
+  activeAnnotationResize = {
+    pointerId: event.pointerId,
+    nodeId: node.id,
+    element: deviceLayer.querySelector(`article.node[data-node-id="${node.id}"]`),
+    startX: event.clientX,
+    startY: event.clientY,
+    startWidth: node.width,
+    startHeight: ANNOTATION_2D_RESIZE_TYPES.has(node.type) ? node.height : null
+  };
+
+  handle.setPointerCapture?.(event.pointerId);
+  event.preventDefault();
+  event.stopPropagation();
+}
+
+function updateAnnotationResize(event) {
+  if (!activeAnnotationResize || activeAnnotationResize.pointerId !== event.pointerId) {
+    return;
+  }
+
+  const node = getNode(activeAnnotationResize.nodeId);
+
+  if (!node) {
+    return;
+  }
+
+  const dx = (event.clientX - activeAnnotationResize.startX) / state.zoom;
+  const nextWidth = Math.max(120, Math.round(activeAnnotationResize.startWidth + dx));
+  node.width = nextWidth;
+
+  if (activeAnnotationResize.element) {
+    activeAnnotationResize.element.style.width = `${nextWidth}px`;
+  }
+
+  if (activeAnnotationResize.startHeight !== null) {
+    const dy = (event.clientY - activeAnnotationResize.startY) / state.zoom;
+    const nextHeight = Math.max(80, Math.round(activeAnnotationResize.startHeight + dy));
+    node.height = nextHeight;
+
+    if (activeAnnotationResize.element) {
+      activeAnnotationResize.element.style.height = `${nextHeight}px`;
+    }
+  }
+}
+
+function endAnnotationResize(event) {
+  if (!activeAnnotationResize || activeAnnotationResize.pointerId !== event.pointerId) {
+    return;
+  }
+
+  activeAnnotationResize = null;
+}
+
+// 0° = straight up (where the handle sits at rest), increasing clockwise —
+// matching the +90°/-90° the toolbar's discrete rotate buttons already use,
+// so this free-angle drag and those buttons agree on what "rotation" means.
+function angleFromCenterDegrees(centerX, centerY, pointX, pointY) {
+  const degrees = Math.atan2(pointY - centerY, pointX - centerX) * (180 / Math.PI) + 90;
+  return (degrees + 360) % 360;
+}
+
+// Small handle above a shape/text/stroke card that lets the operator drag
+// out an arbitrary angle instead of only the toolbar's 90° steps. Unlike
+// the resize handle (which tracks a start size + pointer delta), rotation
+// is computed as an absolute angle from the card's own center to the
+// pointer each move — simpler and drift-free since there's no incremental
+// accumulation to get out of sync.
+function startAnnotationRotate(event, handle) {
+  const node = getNode(handle.dataset.nodeId);
+
+  if (!node || !ANNOTATION_NODE_TYPES.has(node.type)) {
+    return;
+  }
+
+  recordUndoSnapshot();
+
+  activeAnnotationRotate = {
+    pointerId: event.pointerId,
+    nodeId: node.id,
+    element: deviceLayer.querySelector(`article.node[data-node-id="${node.id}"]`),
+    centerX: node.position.x + node.width / 2,
+    centerY: node.position.y + node.height / 2
+  };
+
+  handle.setPointerCapture?.(event.pointerId);
+  event.preventDefault();
+  event.stopPropagation();
+}
+
+function updateAnnotationRotate(event) {
+  if (!activeAnnotationRotate || activeAnnotationRotate.pointerId !== event.pointerId) {
+    return;
+  }
+
+  const node = getNode(activeAnnotationRotate.nodeId);
+
+  if (!node) {
+    return;
+  }
+
+  const point = getWorkspacePoint(event);
+
+  node.rotation = Math.round(angleFromCenterDegrees(
+    activeAnnotationRotate.centerX,
+    activeAnnotationRotate.centerY,
+    point.x,
+    point.y
+  ));
+
+  if (activeAnnotationRotate.element) {
+    activeAnnotationRotate.element.style.transform = `translate(${node.position.x}px, ${node.position.y}px) rotate(${node.rotation}deg)`;
+  }
+}
+
+function endAnnotationRotate(event) {
+  if (!activeAnnotationRotate || activeAnnotationRotate.pointerId !== event.pointerId) {
+    return;
+  }
+
+  activeAnnotationRotate = null;
+}
+
+const ANNOTATION_STROKE_WIDTH = 4;
+const ANNOTATION_STROKE_MIN_SIZE = 24;
+
+function pointsToPathD(points) {
+  return points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
+}
+
+// Freehand pencil marks end up as regular nodes (type "strokeAnnotation"),
+// same as the shapes/text tools — that's what makes them individually
+// movable/resizable/rotatable/deletable for free via the exact same
+// drag-handle, resize-handle, 90°-rotate-toolbar and Delete-key machinery
+// every other node already has, instead of building a second, parallel
+// interaction system just for ink strokes. Only the ACTIVE stroke, while
+// still being drawn, lives outside that model: it's grown point-by-point
+// directly into #annotationLayer (no full render() per pointermove) and
+// only turned into a node on release.
+function startAnnotationStroke(event) {
+  if (!state.drawMode || state.readOnly) {
+    return;
+  }
+
+  const point = getWorkspacePoint(event);
+  const pathElement = document.createElementNS("http://www.w3.org/2000/svg", "path");
+
+  pathElement.setAttribute("class", "annotation-stroke");
+  pathElement.setAttribute("stroke", state.drawColor);
+  pathElement.setAttribute("stroke-width", String(ANNOTATION_STROKE_WIDTH));
+  annotationLayer.append(pathElement);
+
+  activeAnnotationStroke = {
+    pointerId: event.pointerId,
+    points: [point],
+    pathElement,
+    color: state.drawColor,
+    strokeThickness: ANNOTATION_STROKE_WIDTH
+  };
+
+  annotationLayer.setPointerCapture?.(event.pointerId);
+  event.preventDefault();
+}
+
+function updateAnnotationStroke(event) {
+  if (!activeAnnotationStroke || activeAnnotationStroke.pointerId !== event.pointerId) {
+    return;
+  }
+
+  activeAnnotationStroke.points.push(getWorkspacePoint(event));
+  activeAnnotationStroke.pathElement.setAttribute("d", pointsToPathD(activeAnnotationStroke.points));
+}
+
+function endAnnotationStroke(event) {
+  if (!activeAnnotationStroke || activeAnnotationStroke.pointerId !== event.pointerId) {
+    return;
+  }
+
+  const stroke = activeAnnotationStroke;
+  activeAnnotationStroke = null;
+  stroke.pathElement.remove();
+
+  if (stroke.points.length < 2) {
+    return;
+  }
+
+  recordUndoSnapshot();
+
+  const xs = stroke.points.map((point) => point.x);
+  const ys = stroke.points.map((point) => point.y);
+  const pad = Math.max(stroke.strokeThickness, 6);
+  const left = Math.min(...xs) - pad;
+  const top = Math.min(...ys) - pad;
+  const width = Math.max(Math.max(...xs) - left + pad, ANNOTATION_STROKE_MIN_SIZE);
+  const height = Math.max(Math.max(...ys) - top + pad, ANNOTATION_STROKE_MIN_SIZE);
+
+  state.nodes.push({
+    type: "strokeAnnotation",
+    title: "Zeichnung",
+    kicker: "Werkzeug",
+    id: `strokeAnnotation-${state.nextId}`,
+    inputs: [],
+    outputs: [],
+    shortName: "Zeichnung",
+    position: { x: left, y: top },
+    rotation: 0,
+    width,
+    height,
+    // The point coordinates and the viewBox they're drawn into (see
+    // renderStrokeAnnotationNode) never change after creation — the box
+    // that CONTAINS them (width/height above) is what the resize handle
+    // mutates, and the SVG's own viewBox-vs-viewport scaling stretches the
+    // fixed drawing to fill it, so resizing needs no extra math here.
+    pointsWidth: width,
+    pointsHeight: height,
+    points: stroke.points.map((point) => ({ x: point.x - left, y: point.y - top })),
+    color: stroke.color,
+    strokeThickness: stroke.strokeThickness
+  });
+  state.nextId += 1;
+  render();
+}
+
+function setDrawMode(enabled) {
+  state.drawMode = enabled;
+  workspace.classList.toggle("is-drawing", enabled);
+  document.querySelector("#toggleDrawMode")?.setAttribute("aria-pressed", String(enabled));
+}
+
+function setDrawColor(color) {
+  state.drawColor = color;
+  document.querySelectorAll(".draw-color-swatch").forEach((swatch) => {
+    swatch.classList.toggle("is-active", swatch.dataset.color === color);
+  });
+}
+
+function clearAnnotationStrokes() {
+  const strokeIds = state.nodes.filter((node) => node.type === "strokeAnnotation").map((node) => node.id);
+
+  if (!strokeIds.length) {
+    return;
+  }
+
+  removeNodes(strokeIds);
 }
 
 function startMarqueeDrag(event) {

@@ -5,6 +5,9 @@
   const STREAM_DECK_FLICKER_LABELS = { auto: "Auto", off: "Off" };
   const STREAM_DECK_WB_MODE_LABELS = { auto: "Auto", manual: "Manual", kelvin: "Kelvin", daylight: "Daylight", tungsten: "Tungsten", wb_a: "WB A", wb_b: "WB B" };
 
+  const ANNOTATION_COLOR_PALETTE = ["#4cc9f0", "#f72585", "#ffd60a", "#35d07f", "#ff8c42", "#9b5de5", "#e7edf4", "#4a5568"];
+  const TEXT_COLOR_PALETTE = ["#f4f6f8", "#4cc9f0", "#f72585", "#ffd60a", "#35d07f", "#ff8c42"];
+
   class DeviceRenderer {
     constructor({ callbacks, config, state }) {
       this.callbacks = callbacks;
@@ -40,6 +43,21 @@
       // connections.js). Bypasses the whole card/socket machinery below.
       if (node.type === "internetCloud") {
         return this.renderInternetCloudNode(node);
+      }
+
+      // Freeform annotation tools (colored group shapes, text notes) skip
+      // the whole card/header/socket machinery below — they carry their own
+      // width AND height, a resize handle, and no ports at all.
+      if (node.type === "shapeAnnotation") {
+        return this.renderShapeAnnotationNode(node);
+      }
+
+      if (node.type === "textAnnotation") {
+        return this.renderTextAnnotationNode(node);
+      }
+
+      if (node.type === "strokeAnnotation") {
+        return this.renderStrokeAnnotationNode(node);
       }
 
       const activeSwitcher = this.callbacks.getActiveSwitcher();
@@ -128,6 +146,115 @@
               ${this.icons.remove}
             </button>
           </div>
+        </article>
+      `;
+    }
+
+    renderAnnotationColorSwatches(node, palette) {
+      return palette.map((color) => `
+        <button class="annotation-color-swatch ${node.color === color ? "is-active" : ""}" type="button"
+          style="background: ${color};" data-action="set-annotation-color" data-node-id="${node.id}" data-color="${color}"
+          title="${color}" aria-label="Farbe ${color}"></button>
+      `).join("");
+    }
+
+    // Chromeless colored group shape (rect/circle/triangle): no header, no
+    // sockets — just a semi-transparent fill behind whatever devices sit on
+    // or inside it (see the low z-index in CSS), a resize handle at the
+    // bottom-right corner, and a hover-revealed color palette + remove
+    // button. Dragging groups along any device whose center falls inside
+    // its bounds (computed at drag-start in app.js, not here).
+    renderShapeAnnotationNode(node) {
+      const classes = [
+        "node",
+        "shapeAnnotation",
+        "is-chromeless",
+        `shape-kind-${node.shapeKind}`,
+        this.callbacks.isNodeSelected(node.id) ? "is-selected" : ""
+      ].filter(Boolean).join(" ");
+
+      return `
+        <article class="${classes}"
+          data-node-id="${node.id}"
+          style="width: ${node.width}px; height: ${node.height}px; transform: translate(${node.position.x}px, ${node.position.y}px) rotate(${node.rotation ?? 0}deg);">
+          <div class="shape-annotation-fill drag-handle" style="--shape-color: ${node.color};"></div>
+          <div class="shape-annotation-actions ${this.state.readOnly ? "is-hidden" : ""}">
+            <div class="annotation-color-swatches">${this.renderAnnotationColorSwatches(node, ANNOTATION_COLOR_PALETTE)}</div>
+            <button class="small-button icon-button danger" type="button" data-action="remove-node" data-node-id="${node.id}" title="Entfernen" aria-label="Entfernen">
+              ${this.icons.remove}
+            </button>
+          </div>
+          ${this.state.readOnly ? "" : `<div class="annotation-resize-handle" data-action="resize-annotation" data-node-id="${node.id}" title="Größe ändern"></div>`}
+        </article>
+      `;
+    }
+
+    // Chromeless free text note: a plain textarea (committing on blur/change,
+    // like every other text field in this app, so re-renders don't fight
+    // the caret mid-keystroke), a small drag handle since the textarea
+    // itself needs normal click/drag-to-select behavior, and the same
+    // color-palette + resize-handle treatment as the shapes above.
+    renderTextAnnotationNode(node) {
+      const classes = [
+        "node",
+        "textAnnotation",
+        "is-chromeless",
+        this.callbacks.isNodeSelected(node.id) ? "is-selected" : ""
+      ].filter(Boolean).join(" ");
+
+      return `
+        <article class="${classes}"
+          data-node-id="${node.id}"
+          style="width: ${node.width}px; transform: translate(${node.position.x}px, ${node.position.y}px) rotate(${node.rotation ?? 0}deg);">
+          <div class="text-annotation-handle drag-handle" title="Verschieben" aria-hidden="true">&#10021;</div>
+          <textarea class="text-annotation-input" data-action="set-annotation-text" data-node-id="${node.id}"
+            style="color: ${node.color};" placeholder="Text eingeben" ${this.state.readOnly ? "disabled" : ""}
+            rows="1">${escapeHtml(node.text ?? "")}</textarea>
+          <div class="text-annotation-actions ${this.state.readOnly ? "is-hidden" : ""}">
+            <div class="annotation-color-swatches">${this.renderAnnotationColorSwatches(node, TEXT_COLOR_PALETTE)}</div>
+            <button class="small-button icon-button danger" type="button" data-action="remove-node" data-node-id="${node.id}" title="Entfernen" aria-label="Entfernen">
+              ${this.icons.remove}
+            </button>
+          </div>
+          ${this.state.readOnly ? "" : `<div class="annotation-resize-handle" data-action="resize-annotation" data-node-id="${node.id}" title="Breite ändern"></div>`}
+        </article>
+      `;
+    }
+
+    // Chromeless freehand pencil mark, folded into the same node model as
+    // the shapes/text above purely so it gets their drag/resize/rotate/
+    // delete machinery for free. The transparent hit-area (not the thin
+    // path itself) is the drag handle, since grabbing a 2px line precisely
+    // would be unusable. The <path>'s own "d" and the inner <svg>'s viewBox
+    // are both fixed at the size the stroke was drawn at (node.pointsWidth/
+    // pointsHeight) — resizing only changes the OUTER box (node.width/
+    // height, via the shared resize handle in app.js), and the SVG's normal
+    // viewBox-vs-viewport scaling stretches the fixed drawing to fill it,
+    // so no point math is needed here or on every resize step.
+    renderStrokeAnnotationNode(node) {
+      const classes = [
+        "node",
+        "strokeAnnotation",
+        "is-chromeless",
+        this.callbacks.isNodeSelected(node.id) ? "is-selected" : ""
+      ].filter(Boolean).join(" ");
+
+      return `
+        <article class="${classes}"
+          data-node-id="${node.id}"
+          style="width: ${node.width}px; height: ${node.height}px; transform: translate(${node.position.x}px, ${node.position.y}px) rotate(${node.rotation ?? 0}deg);">
+          <div class="stroke-annotation-hit drag-handle" title="Verschieben"></div>
+          <svg class="stroke-annotation-svg" viewBox="0 0 ${node.pointsWidth} ${node.pointsHeight}" preserveAspectRatio="none" aria-hidden="true">
+            <path d="${pointsToPathD(node.points)}" stroke="${node.color}" stroke-width="${node.strokeThickness}"></path>
+          </svg>
+          <div class="shape-annotation-actions ${this.state.readOnly ? "is-hidden" : ""}">
+            <div class="annotation-color-swatches">${this.renderAnnotationColorSwatches(node, ANNOTATION_COLOR_PALETTE)}</div>
+            <button class="small-button icon-button danger" type="button" data-action="remove-node" data-node-id="${node.id}" title="Entfernen" aria-label="Entfernen">
+              ${this.icons.remove}
+            </button>
+          </div>
+          ${this.state.readOnly ? "" : `<div class="annotation-resize-handle" data-action="resize-annotation" data-node-id="${node.id}" title="Größe ändern"></div>`}
+          ${this.state.readOnly ? "" : `<div class="annotation-rotate-handle" data-action="rotate-annotation" data-node-id="${node.id}" title="Frei drehen"></div>`}
         </article>
       `;
     }
